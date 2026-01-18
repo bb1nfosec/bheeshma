@@ -38,11 +38,7 @@ BHEESHMA is a security tool designed to protect Node.js applications from supply
 
 ### Where to Report
 
-**DO NOT** create a public GitHub issue for security vulnerabilities.
-
-Instead:
-1. **Email**: [Your security email - e.g., security@yourdomain.com]
-2. **Subject**: `[SECURITY] BHEESHMA - <brief description>`
+create a public GitHub issue for security vulnerabilities.
 
 Alternatively, use GitHub Security Advisories:
 - Go to the Security tab
