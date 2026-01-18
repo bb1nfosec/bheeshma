@@ -1,0 +1,27 @@
+# npm Package Files
+test/
+test-report.json
+.bheeshmarc.json
+*.log
+coverage/
+.DS_Store
+.vscode/
+*.swp
+*.swo
+.idea/
+node_modules/
+
+# Git
+.git/
+.gitignore
+
+# CI/CD
+.github/
+
+# Development
+example.js
+real-world-test.js
+
+# Brain/Artifacts (if present)
+brain/
+.gemini/
