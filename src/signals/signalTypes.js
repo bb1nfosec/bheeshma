@@ -20,7 +20,9 @@ const SignalType = Object.freeze({
   FS_READ: 'FS_READ',             // File system read operation
   FS_WRITE: 'FS_WRITE',           // File system write operation
   SHELL_EXEC: 'SHELL_EXEC',       // Shell/child process execution
-  NET_CONNECT: 'NET_CONNECT'      // Outbound network connection
+  NET_CONNECT: 'NET_CONNECT',     // Outbound network connection
+  HTTP_REQUEST: 'HTTP_REQUEST',   // HTTP request
+  HTTPS_REQUEST: 'HTTPS_REQUEST'  // HTTPS request
 });
 
 /**
@@ -75,21 +77,27 @@ function validateSignalMetadata(type, metadata) {
     case SignalType.ENV_ACCESS:
       // Must have variable name (not value - security consideration)
       return typeof metadata.variable === 'string';
-    
+
     case SignalType.FS_READ:
     case SignalType.FS_WRITE:
       // Must have file path (absolute, sanitized)
       return typeof metadata.path === 'string';
-    
+
     case SignalType.SHELL_EXEC:
       // Must have command (sanitized - no interpolated secrets)
       return typeof metadata.command === 'string';
-    
+
     case SignalType.NET_CONNECT:
       // Must have host and port
-      return typeof metadata.host === 'string' && 
-             typeof metadata.port === 'number';
-    
+      return typeof metadata.host === 'string' &&
+        typeof metadata.port === 'number';
+
+    case SignalType.HTTP_REQUEST:
+    case SignalType.HTTPS_REQUEST:
+      // Must have URL and method
+      return typeof metadata.url === 'string' &&
+        typeof metadata.method === 'string';
+
     default:
       return false;
   }

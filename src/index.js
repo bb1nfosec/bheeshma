@@ -13,9 +13,12 @@ const envHook = require('./hooks/envHook');
 const fsHook = require('./hooks/fsHook');
 const netHook = require('./hooks/netHook');
 const childProcHook = require('./hooks/childProcHook');
+const httpHook = require('./hooks/httpHook');
 const { calculateAllScores } = require('./scoring/trustScore');
 const cliFormatter = require('./output/cliFormatter');
 const jsonFormatter = require('./output/jsonFormatter');
+const { loadConfig, getDefaultConfig } = require('./config/configLoader');
+const { analyzePatterns } = require('./patterns/patternMatcher');
 
 /**
  * Global signal collector
@@ -27,6 +30,11 @@ const signals = [];
  * Hook installation state
  */
 let hooksInstalled = false;
+
+/**
+ * Current configuration
+ */
+let currentConfig = null;
 
 /**
  * Initialize BHEESHMA monitoring
@@ -48,34 +56,53 @@ function init(options = {}) {
         return { success: true, installed: [], message: 'Already initialized' };
     }
 
+    // Load configuration
+    if (options.config) {
+        currentConfig = options.config;
+    } else if (options.configPath) {
+        currentConfig = loadConfig(options.configPath);
+    } else {
+        currentConfig = loadConfig(); // Auto-search for config file
+    }
+
+    if (!currentConfig) {
+        currentConfig = getDefaultConfig();
+    }
+
     const installed = [];
     const failed = [];
 
-    // Install hooks sequentially
+    // Install hooks sequentially based on configuration
     // If one fails, others can still succeed (defense in depth)
 
-    if (envHook.install(signals)) {
+    if (currentConfig.hooks.env && envHook.install(signals)) {
         installed.push('envHook');
-    } else {
+    } else if (currentConfig.hooks.env) {
         failed.push('envHook');
     }
 
-    if (fsHook.install(signals)) {
+    if (currentConfig.hooks.fs && fsHook.install(signals)) {
         installed.push('fsHook');
-    } else {
+    } else if (currentConfig.hooks.fs) {
         failed.push('fsHook');
     }
 
-    if (netHook.install(signals)) {
+    if (currentConfig.hooks.net && netHook.install(signals)) {
         installed.push('netHook');
-    } else {
+    } else if (currentConfig.hooks.net) {
         failed.push('netHook');
     }
 
-    if (childProcHook.install(signals)) {
+    if (currentConfig.hooks.childProcess && childProcHook.install(signals)) {
         installed.push('childProcHook');
-    } else {
+    } else if (currentConfig.hooks.childProcess) {
         failed.push('childProcHook');
+    }
+
+    if (currentConfig.hooks.http && httpHook.install(signals)) {
+        installed.push('httpHook');
+    } else if (currentConfig.hooks.http) {
+        failed.push('httpHook');
     }
 
     hooksInstalled = installed.length > 0;
@@ -83,7 +110,8 @@ function init(options = {}) {
     return {
         success: hooksInstalled,
         installed,
-        failed: failed.length > 0 ? failed : undefined
+        failed: failed.length > 0 ? failed : undefined,
+        config: currentConfig
     };
 }
 
