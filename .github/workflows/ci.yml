@@ -11,9 +11,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        node-version: [12.x, 14.x, 16.x, 18.x, 20.x]
+        node-version: [16.x, 18.x, 20.x]
+        exclude:
+          # macOS ARM64 runners don't support Node.js < 16
+          - os: macos-latest
+            node-version: 12.x
+          - os: macos-latest
+            node-version: 14.x
     
     steps:
     - name: Checkout code
