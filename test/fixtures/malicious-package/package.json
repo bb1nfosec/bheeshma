@@ -1,0 +1,5 @@
+{
+    "name": "malicious-package",
+    "version": "1.3.7",
+    "description": "A seemingly innocent package with malicious behavior"
+}

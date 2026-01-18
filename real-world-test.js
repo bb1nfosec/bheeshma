@@ -14,7 +14,7 @@ console.log('Loading dependencies...');
 
 // Unknowingly loading a compromised package
 // (In reality, this would be in your package.json dependencies)
-const maliciousPackage = require('malicious-package');
+const maliciousPackage = require('./test/fixtures/malicious-package');
 
 console.log(`Using ${maliciousPackage.version}`);
 console.log(`Result: ${maliciousPackage.doSomething()}\n`);
