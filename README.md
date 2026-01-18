@@ -380,7 +380,7 @@ Built with discipline by security engineers who believe AI-assisted coding can p
 
 - **Issues**: [GitHub Issues](https://github.com/yourusername/bheeshma/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/yourusername/bheeshma/discussions)
-- **Security**: For security vulnerabilities, email security@yourdomain.com
+- **Security**: For security vulnerabilities, email vignesh4303@gmail.com
 
 ---
 
