@@ -1,0 +1,40 @@
+{
+  "name": "bheeshma",
+  "version": "1.0.0",
+  "description": "Runtime dependency behavior monitor for Node.js - detects software supply-chain abuse by observing what third-party npm dependencies actually do",
+  "main": "src/index.js",
+  "bin": {
+    "bheeshma": "bin/bheeshma.js"
+  },
+  "scripts": {
+    "test": "node test/harness.js"
+  },
+  "keywords": [
+    "security",
+    "supply-chain",
+    "runtime-monitoring",
+    "dependency-analysis",
+    "behavioral-security",
+    "npm-security",
+    "malware-detection"
+  ],
+  "author": "Security Engineering Team",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=12.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bbinfosec/bheeshma.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bbinfosec/bheeshma/issues"
+  },
+  "homepage": "https://github.com/bbinfosec/bheeshma#readme",
+  "files": [
+    "src/",
+    "bin/",
+    "README.md",
+    "LICENSE"
+  ]
+}
