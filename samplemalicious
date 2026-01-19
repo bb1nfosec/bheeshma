@@ -1,0 +1,111 @@
+/**
+ * BHEESHMA – Malware Simulation Payload
+ * -------------------------------------
+ * This file intentionally mimics malicious JavaScript patterns
+ * for SECURITY TOOL TESTING ONLY.
+ *
+ * No real harm. No network. No persistence.
+ */
+
+(function () {
+  console.log("[BHEESHMA-SIM] Starting malware simulation payload");
+
+  /* ============================================================
+   * 1. OBFUSCATION + BASE64 + EVAL
+   * ============================================================ */
+
+  const _0xdead = [
+    "Y29uc29sZS5sb2c=",
+    "T2JmdXNjYXRlZCBjb2RlIGV4ZWN1dGVk"
+  ];
+
+  function _decode(idx) {
+    return Buffer.from(_0xdead[idx], "base64").toString();
+  }
+
+  eval(`${_decode(0)}("${_decode(1)}")`);
+
+  /* ============================================================
+   * 2. DYNAMIC FUNCTION LOADER (new Function)
+   * ============================================================ */
+
+  const dynamicPayload = `
+    console.log("[BHEESHMA-SIM] Dynamic loader executed");
+  `;
+
+  const loader = new Function(dynamicPayload);
+  loader();
+
+  /* ============================================================
+   * 3. FAKE CREDENTIAL ACCESS (SIMULATION)
+   * ============================================================ */
+
+  function simulateCredentialAccess() {
+    const fakeSecrets = [
+      "AWS_SECRET_ACCESS_KEY",
+      "DB_PASSWORD",
+      "GITHUB_TOKEN",
+      "PRIVATE_KEY"
+    ];
+
+    fakeSecrets.forEach(key => {
+      console.log("[SIMULATION] Accessing sensitive key:", key);
+    });
+  }
+
+  simulateCredentialAccess();
+
+  /* ============================================================
+   * 4. ENVIRONMENT FINGERPRINTING
+   * ============================================================ */
+
+  function fingerprintSystem() {
+    const fingerprint = {
+      platform: process.platform,
+      arch: process.arch,
+      nodeVersion: process.version,
+      pid: process.pid
+    };
+
+    console.log("[SIMULATION] System fingerprint:", fingerprint);
+  }
+
+  fingerprintSystem();
+
+  /* ============================================================
+   * 5. FAKE C2 BEACON (NO NETWORK)
+   * ============================================================ */
+
+  const C2_ENDPOINT = "http://malicious-example.test/beacon";
+
+  function simulateBeacon() {
+    console.log(`[SIMULATION] Beaconing to ${C2_ENDPOINT}`);
+  }
+
+  setInterval(simulateBeacon, 4000);
+
+  /* ============================================================
+   * 6. SUPPLY-CHAIN STYLE POSTINSTALL BEHAVIOR
+   * ============================================================ */
+
+  if (require.main === module) {
+    console.log("[SIMULATION] Executed as postinstall script");
+  }
+
+  /* ============================================================
+   * 7. STRING DEOBFUSCATION PATTERN
+   * ============================================================ */
+
+  const hexEncoded = "5b4248454553484d412d53494d5d20486578206465636f646564";
+  const decodedHex = Buffer.from(hexEncoded, "hex").toString();
+  console.log(decodedHex);
+
+  /* ============================================================
+   * 8. TIME-BASED EXECUTION (SLEEP EVASION STYLE)
+   * ============================================================ */
+
+  setTimeout(() => {
+    console.log("[SIMULATION] Delayed execution triggered");
+  }, 3000);
+
+})();
