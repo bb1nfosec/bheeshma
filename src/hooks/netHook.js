@@ -15,7 +15,7 @@
 
 const net = require('net');
 const { createSignal, SignalType } = require('../signals/signalTypes');
-const { resolveCurrentStack, isWhitelisted } = require('../attribution/resolver');
+const { resolveCurrentStack } = require('../attribution/resolver');
 
 /**
  * Global signal collector
@@ -52,6 +52,7 @@ function install(collector, config) {
         // Note: HTTP/HTTPS is handled separately by httpHook.js which provides
         // richer analysis (headers, suspiciousness scoring). We intentionally
         // do NOT wrap http.request/https.request here to avoid conflicts.
+        hookNetConnect();
 
         isHookInstalled = true;
         return true;

@@ -13,7 +13,7 @@
 'use strict';
 
 const { createSignal, SignalType } = require('../signals/signalTypes');
-const { resolveCurrentStack, isWhitelisted } = require('../attribution/resolver');
+const { resolveCurrentStack } = require('../attribution/resolver');
 
 let signalCollector = [];
 let originalDescriptor = null;

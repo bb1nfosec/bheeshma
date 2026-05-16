@@ -258,7 +258,17 @@ function formatPatternAnalysis(patternResults) {
     if (patternResults.credentialTheft.length > 0) {
         lines.push(colorize('  🔑  Credential Theft Indicators:', 'yellow'));
         for (const indicator of patternResults.credentialTheft) {
-            lines.push(`     [${indicator.severity}] ${indicator.package}: ${indicator.type} — ${indicator.indicator}`);
+            const ctx = indicator.context ? ` (${indicator.context})` : '';
+            lines.push(`     [${indicator.severity}] ${indicator.package}: ${indicator.type} — ${indicator.indicator}${ctx}`);
+        }
+        lines.push('');
+    }
+
+    // Typosquat detection
+    if (patternResults.typosquats && patternResults.typosquats.length > 0) {
+        lines.push(colorize('  🔍  Typosquat Detection:', 'cyan'));
+        for (const indicator of patternResults.typosquats) {
+            lines.push(`     [${indicator.severity}] ${indicator.indicator}`);
         }
         lines.push('');
     }

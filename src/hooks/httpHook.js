@@ -13,7 +13,7 @@
 const http = require('http');
 const https = require('https');
 const { createSignal, SignalType } = require('../signals/signalTypes');
-const { getPackageFromStack, isWhitelisted } = require('../attribution/resolver');
+const { getPackageFromStack } = require('../attribution/resolver');
 
 let originalHttpRequest = null;
 let originalHttpsRequest = null;
@@ -29,7 +29,7 @@ let hookConfig = null;
  * @returns {boolean} Success
  */
 function install(signals, config) {
-    if (!signals || !Array.isArray(signals)) {
+    if (!signals || (typeof signals !== 'object')) {
         return false;
     }
 

@@ -15,7 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 const { createSignal, SignalType } = require('../signals/signalTypes');
-const { resolveCurrentStack, isWhitelisted } = require('../attribution/resolver');
+const { resolveCurrentStack } = require('../attribution/resolver');
 
 let signalCollector = [];
 const originalFunctions = {};

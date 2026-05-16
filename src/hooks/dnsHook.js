@@ -12,7 +12,7 @@
 
 const dns = require('dns');
 const { createSignal, SignalType } = require('../signals/signalTypes');
-const { resolveCurrentStack, isWhitelisted } = require('../attribution/resolver');
+const { resolveCurrentStack } = require('../attribution/resolver');
 
 let signalCollector = [];
 let hookConfig = null;
