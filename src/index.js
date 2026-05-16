@@ -19,6 +19,7 @@ const { calculateAllScores, findCriticalPackages, getRiskLevel } = require('./sc
 const cliFormatter = require('./output/cliFormatter');
 const jsonFormatter = require('./output/jsonFormatter');
 const htmlFormatter = require('./output/htmlFormatter');
+const sarifFormatter = require('./output/sarifFormatter');
 const { loadConfig, getDefaultConfig } = require('./config/configLoader');
 const { analyzePatterns } = require('./patterns/patternMatcher');
 const resolver = require('./attribution/resolver');
@@ -338,7 +339,7 @@ function getConfig() {
  * 
  * Runs pattern analysis on all collected signals and includes results.
  * 
- * @param {string} format - 'cli', 'json', or 'html'
+ * @param {string} format - 'cli', 'json', 'html', or 'sarif'
  * @returns {string} Formatted report
  */
 function generateReport(format = 'cli') {
@@ -352,6 +353,13 @@ function generateReport(format = 'cli') {
         return jsonFormatter.formatReport(scores, signals, patternResults);
     } else if (format === 'html') {
         return htmlFormatter.formatReport(scores, signals, patternResults);
+    } else if (format === 'sarif') {
+        let toolVersion = '1.0.0';
+        try {
+            const pkgJson = require('../package.json');
+            toolVersion = pkgJson.version;
+        } catch (e) { /* use default */ }
+        return sarifFormatter.formatReport(scores, signals, patternResults, { toolVersion });
     } else {
         return cliFormatter.formatReport(scores, signals, patternResults);
     }

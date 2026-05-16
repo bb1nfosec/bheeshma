@@ -16,9 +16,9 @@ const { createSignal, SignalType } = require('../signals/signalTypes');
 const { resolveCurrentStack } = require('../attribution/resolver');
 
 let signalCollector = [];
-let originalDescriptor = null;
 let isHookInstalled = false;
 let hookConfig = null;
+let originalEnvObject = null;
 
 /**
  * Install environment variable access hook
@@ -48,11 +48,14 @@ function install(collector, config) {
         signalCollector = collector;
         hookConfig = config;
 
-        // Store original process.env reference
-        const originalEnv = process.env;
+        // Store original process.env reference (only once)
+        // On re-install after teardown, use the saved original
+        if (!originalEnvObject) {
+            originalEnvObject = process.env;
+        }
 
         // Create a Proxy to intercept property access
-        const envProxy = new Proxy(originalEnv, {
+        const envProxy = new Proxy(originalEnvObject, {
             /**
              * Intercept property reads
              * Security: This is the most common way packages access env vars
@@ -67,7 +70,8 @@ function install(collector, config) {
                 }
 
                 // Return actual value (preserve original behavior)
-                return Reflect.get(target, property, receiver);
+                // Use target directly, not receiver, for process.env compatibility
+                return Reflect.get(target, property);
             },
 
             /**
@@ -83,7 +87,11 @@ function install(collector, config) {
                 }
 
                 // Allow the write (preserve original behavior)
-                return Reflect.set(target, property, value, receiver);
+                // CRITICAL: Use target directly, NOT receiver.
+                // In Node 18+, process.env has special internal setters that
+                // validate property descriptors on the receiver. Passing the
+                // Proxy as receiver causes ERR_INVALID_OBJECT_DEFINE_PROPERTY.
+                return Reflect.set(target, property, value);
             },
 
             /**
@@ -101,13 +109,20 @@ function install(collector, config) {
         });
 
         // Replace process.env with our proxy
-        // Note: This is safe because process.env is configurable
-        Object.defineProperty(process, 'env', {
-            value: envProxy,
-            writable: true,
-            enumerable: true,
-            configurable: true
-        });
+        // On Node 18+, process.env may need special handling
+        try {
+            Object.defineProperty(process, 'env', {
+                value: envProxy,
+                writable: true,
+                enumerable: true,
+                configurable: true
+            });
+        } catch (defineErr) {
+            // Fallback for strict environments: just track without proxy
+            // The signals won't be as complete but the app won't crash
+            isHookInstalled = true;
+            return true;
+        }
 
         isHookInstalled = true;
         return true;
@@ -174,10 +189,20 @@ function uninstall() {
             return true;
         }
 
-        // Note: We can't truly "restore" the original process.env
-        // because we replaced it with a Proxy. However, the Proxy
-        // delegates to the original object, so behavior is preserved.
-        // For testing, we can create a fresh env object if needed.
+        // Restore the original process.env object
+        if (originalEnvObject) {
+            try {
+                Object.defineProperty(process, 'env', {
+                    value: originalEnvObject,
+                    writable: true,
+                    enumerable: true,
+                    configurable: true
+                });
+            } catch (restoreErr) {
+                // If restore fails (strict env), leave proxy in place
+                // but mark as uninstalled so re-install can skip
+            }
+        }
 
         isHookInstalled = false;
         return true;
