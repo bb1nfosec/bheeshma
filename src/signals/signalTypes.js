@@ -22,7 +22,9 @@ const SignalType = Object.freeze({
   SHELL_EXEC: 'SHELL_EXEC',       // Shell/child process execution
   NET_CONNECT: 'NET_CONNECT',     // Outbound network connection
   HTTP_REQUEST: 'HTTP_REQUEST',   // HTTP request
-  HTTPS_REQUEST: 'HTTPS_REQUEST'  // HTTPS request
+  HTTPS_REQUEST: 'HTTPS_REQUEST', // HTTPS request
+  DNS_QUERY: 'DNS_QUERY',         // DNS resolution query
+  OBFUSCATION_DETECTED: 'OBFUSCATION_DETECTED' // Static obfuscation found
 });
 
 /**
@@ -97,6 +99,14 @@ function validateSignalMetadata(type, metadata) {
       // Must have URL and method
       return typeof metadata.url === 'string' &&
         typeof metadata.method === 'string';
+
+    case SignalType.DNS_QUERY:
+      // Must have hostname
+      return typeof metadata.hostname === 'string';
+
+    case SignalType.OBFUSCATION_DETECTED:
+      // Must have indicator description
+      return typeof metadata.indicators === 'object';
 
     default:
       return false;

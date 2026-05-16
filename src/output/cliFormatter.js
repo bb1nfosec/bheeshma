@@ -38,7 +38,11 @@ const signalEmoji = {
     [SignalType.FS_READ]: '📖',
     [SignalType.FS_WRITE]: '📝',
     [SignalType.SHELL_EXEC]: '⚡',
-    [SignalType.NET_CONNECT]: '🌐'
+    [SignalType.NET_CONNECT]: '🌐',
+    [SignalType.HTTP_REQUEST]: '📨',
+    [SignalType.HTTPS_REQUEST]: '🔐',
+    [SignalType.DNS_QUERY]: '🌐',
+    [SignalType.OBFUSCATION_DETECTED]: '⚠️'
 };
 
 /**

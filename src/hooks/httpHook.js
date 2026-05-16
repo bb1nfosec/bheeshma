@@ -13,11 +13,12 @@
 const http = require('http');
 const https = require('https');
 const { createSignal, SignalType } = require('../signals/signalTypes');
-const { getPackageFromStack } = require('../attribution/resolver');
+const { getPackageFromStack, isWhitelisted } = require('../attribution/resolver');
 
 let originalHttpRequest = null;
 let originalHttpsRequest = null;
 let signalsArray = null;
+let hookConfig = null;
 
 /**
  * Install HTTP/HTTPS monitoring hook
@@ -27,12 +28,13 @@ let signalsArray = null;
  * @param {Array} signals - Global signals array
  * @returns {boolean} Success
  */
-function install(signals) {
+function install(signals, config) {
     if (!signals || !Array.isArray(signals)) {
         return false;
     }
 
     signalsArray = signals;
+    hookConfig = config;
 
     try {
         // Hook http.request
@@ -71,6 +73,11 @@ function createHttpRequestHook(original, isHttps) {
             const stack = new Error().stack;
             const attribution = getPackageFromStack(stack);
 
+            // Only record signals for third-party packages (not first-party code)
+            if (!attribution) {
+                return original.apply(this, args);
+            }
+
             // Create signal
             const signal = createSignal(
                 isHttps ? SignalType.HTTPS_REQUEST : SignalType.HTTP_REQUEST,
@@ -83,7 +90,7 @@ function createHttpRequestHook(original, isHttps) {
                     headers: sanitizeHeaders(requestInfo.headers),
                     suspicious: analyzeSuspiciousness(requestInfo)
                 },
-                attribution.package,
+                attribution.name,
                 attribution.version,
                 stack
             );

@@ -19,7 +19,8 @@ const DEFAULT_CONFIG = Object.freeze({
         fs: true,
         net: true,
         childProcess: true,
-        http: true
+        http: true,
+        dns: true
     },
     riskWeights: {
         [SignalType.SHELL_EXEC]: 20,
@@ -28,13 +29,18 @@ const DEFAULT_CONFIG = Object.freeze({
         [SignalType.HTTP_REQUEST]: 10,
         [SignalType.HTTPS_REQUEST]: 8,
         [SignalType.ENV_ACCESS]: 5,
-        [SignalType.FS_READ]: 3
+        [SignalType.FS_READ]: 3,
+        [SignalType.DNS_QUERY]: 4,
+        [SignalType.OBFUSCATION_DETECTED]: 25
     },
     thresholds: {
         critical: 30,
         high: 60,
         medium: 80
     },
+    // Per-package threshold overrides: { "axios": 40, "express": 50 }
+    // Packages below their custom threshold are flagged as CRITICAL
+    packageThresholds: {},
     whitelist: [],
     blacklist: [],
     patterns: {
@@ -46,13 +52,18 @@ const DEFAULT_CONFIG = Object.freeze({
     },
     performance: {
         track: false,
-        maxSignals: 10000
+        maxSignals: 10000,
+        deduplicateSignals: true
     },
     output: {
         formats: ['cli'],
         verbosity: 'normal',
         includeStackTraces: true
-    }
+    },
+    // Enforcement mode: exit(1) if any package hits CRITICAL
+    enforce: false,
+    // Webhook alert URL for CI/CD integration
+    alertWebhook: null
 });
 
 /**
@@ -73,7 +84,7 @@ function validateConfig(config) {
         if (typeof config.hooks !== 'object') {
             errors.push('hooks must be an object');
         } else {
-            const validHooks = ['env', 'fs', 'net', 'childProcess', 'http'];
+            const validHooks = ['env', 'fs', 'net', 'childProcess', 'http', 'dns'];
             for (const [key, value] of Object.entries(config.hooks)) {
                 if (!validHooks.includes(key)) {
                     errors.push(`Invalid hook: ${key}`);
@@ -125,6 +136,22 @@ function validateConfig(config) {
         }
     }
 
+    // Validate per-package thresholds
+    if (config.packageThresholds) {
+        if (typeof config.packageThresholds !== 'object' || Array.isArray(config.packageThresholds)) {
+            errors.push('packageThresholds must be an object');
+        } else {
+            for (const [pkgName, threshold] of Object.entries(config.packageThresholds)) {
+                if (typeof pkgName !== 'string') {
+                    errors.push(`packageThresholds key must be a string: ${pkgName}`);
+                }
+                if (typeof threshold !== 'number' || threshold < 0 || threshold > 100) {
+                    errors.push(`packageThresholds value for "${pkgName}" must be 0-100`);
+                }
+            }
+        }
+    }
+
     // Validate whitelist/blacklist
     if (config.whitelist && !Array.isArray(config.whitelist)) {
         errors.push('whitelist must be an array');
@@ -153,6 +180,18 @@ function validateConfig(config) {
         }
     }
 
+    // Validate enforcement mode
+    if (config.enforce !== undefined && typeof config.enforce !== 'boolean') {
+        errors.push('enforce must be a boolean');
+    }
+
+    // Validate alert webhook
+    if (config.alertWebhook !== undefined && config.alertWebhook !== null) {
+        if (typeof config.alertWebhook !== 'string') {
+            errors.push('alertWebhook must be a string URL or null');
+        }
+    }
+
     return {
         valid: errors.length === 0,
         errors
@@ -171,11 +210,14 @@ function mergeConfig(userConfig) {
         hooks: { ...DEFAULT_CONFIG.hooks, ...userConfig.hooks },
         riskWeights: { ...DEFAULT_CONFIG.riskWeights, ...userConfig.riskWeights },
         thresholds: { ...DEFAULT_CONFIG.thresholds, ...userConfig.thresholds },
+        packageThresholds: userConfig.packageThresholds || DEFAULT_CONFIG.packageThresholds,
         whitelist: userConfig.whitelist || DEFAULT_CONFIG.whitelist,
         blacklist: userConfig.blacklist || DEFAULT_CONFIG.blacklist,
         patterns: { ...DEFAULT_CONFIG.patterns, ...userConfig.patterns },
         performance: { ...DEFAULT_CONFIG.performance, ...userConfig.performance },
-        output: { ...DEFAULT_CONFIG.output, ...userConfig.output }
+        output: { ...DEFAULT_CONFIG.output, ...userConfig.output },
+        enforce: userConfig.enforce !== undefined ? userConfig.enforce : DEFAULT_CONFIG.enforce,
+        alertWebhook: userConfig.alertWebhook !== undefined ? userConfig.alertWebhook : DEFAULT_CONFIG.alertWebhook
     };
 }
 

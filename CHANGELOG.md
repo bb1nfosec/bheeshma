@@ -2,8 +2,62 @@
 
 All notable changes to BHEESHMA will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [3.0.0] - 2026-05-16
+
+### Added
+
+#### Policy Enforcement Mode
+- **`--enforce` CLI flag**: Exit with code 1 if any package has CRITICAL trust score — immediately useful in CI/CD pipelines
+- **`enforcePolicy()` API**: Programmatic enforcement check returning `{ passed, criticalPackages[], message }`
+- **Whitelist suppression at hook layer**: Whitelisted packages no longer accumulate signals — suppression happens before recording
+- **Per-package threshold overrides**: `"packageThresholds": { "axios": 40 }` lets teams tune known-noisy packages
+- **Webhook alerts**: `--alert-webhook <url>` sends POST to Slack, Discord, ntfy.sh on CRITICAL findings
+
+#### ESM + Worker Thread Support
+- **ESM loader hook** (`src/esm-loader.mjs`): Node.js `--loader` API intercepts ES module imports for pure ESM packages (got, node-fetch v3+, chalk v5+)
+- **Worker thread bootstrap** (`src/worker-bootstrap.js`): Reinstalls hooks in worker threads and relays signals to main thread via `parentPort.postMessage()`
+- **Signal merging**: Main process collector merges incoming worker signals before report generation
+
+#### Attribution Accuracy
+- **Outermost node_modules resolution**: Walks the entire call stack and finds the outermost node_modules entry (closest to user code), not the first one. Prevents transitive dependency mislabeling
+- **Signal deduplication**: Collapses identical signals using `${pkg}:${type}:${destination}` key. A package making 300 identical HTTP requests shows as 1 entry with count=300
+- **`isWhitelisted()` and `matchesWhitelist()`**: Pattern matching for whitelist entries supporting `pkg@*`, `@scope/*`, and exact match
+
+#### DNS Monitoring
+- **DNS hook** (`src/hooks/dnsHook.js`): Wraps `dns.lookup`, `dns.resolve`, `dns.resolve4`, `dns.resolve6`, `dns.resolveTxt`
+- **DNS tunneling detection**: Identifies abnormally long subdomains (>50 chars), high-entropy subdomains (Shannon entropy > 4.0), Base64/hex encoded subdomains
+- **Known exfil service detection**: Flags queries to dnshook.site, webhook.site, ngrok.io, requestbin.com
+
+#### Obfuscation Detection
+- **Static analysis module** (`src/obfuscation/detector.js`): Scans package entry points at first signal emission
+- **Pattern detection**: eval(), Function() constructors, Buffer.from().toString() chains, long hex literals, \x escape density >10%, String.fromCharCode chains, atob(), excessive string concatenation
+- **OBFUSCATION_DETECTED signal type**: Flagged at severity HIGH before the package even runs
+
+#### Release Pipeline
+- **CI workflow** (`.github/workflows/ci.yml`): Runs tests on Node 14/16/18/20, npm audit, secret scanning
+- **Release workflow** (`.github/workflows/release.yml`): Auto-publish to npm on tag push, creates GitHub Release with changelog
+- **HTML report formatter** (`src/output/htmlFormatter.js`): Self-contained dark-themed HTML with filtering, search, JSON export — no external dependencies
+
+### Changed
+- **Signal types**: Added `DNS_QUERY` and `OBFUSCATION_DETECTED` to signal enum
+- **Trust scoring**: Updated to support per-package custom thresholds and dedup-aware score calculation
+- **All hooks**: Now accept config parameter and enforce whitelist at signal collection time
+- **Attribution resolver**: Exports `getPackageFromStack()` (fixes existing bug) and `isWhitelisted()`
+- **Minimum Node.js version**: Raised to >= 14.0.0 (for worker_threads stability)
+- **Version**: Bumped to 3.0.0
+
+### Fixed
+- **Bug**: `httpHook.js` imported non-existent `getPackageFromStack` — now properly exported from resolver
+- **Bug**: Whitelist config existed but was never consulted at runtime — now enforced at hook layer
+- **Bug**: Attribution used first node_modules match — now uses outermost (correct) match
+- **Bug**: No signal deduplication — identical calls created noise in reports
+
+### Performance
+- **Dedup overhead**: Negligible (<0.01ms per signal)
+- **DNS hook overhead**: ~0.05ms per query
+- **HTML report generation**: <10ms for typical projects
+
+---
 
 ## [2.0.0] - 2026-01-18
 

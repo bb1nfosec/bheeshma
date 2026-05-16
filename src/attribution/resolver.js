@@ -23,61 +23,59 @@ const path = require('path');
 const packageCache = new Map();
 
 /**
- * Extract npm package attribution from a stack trace
+ * Extract npm package attribution from a stack trace string.
  * 
- * Algorithm:
- * 1. Parse stack trace into frames
- * 2. Find frames containing 'node_modules'
- * 3. Extract package directory and read package.json
- * 4. Return package name and version
+ * Attribution strategy: Walk the ENTIRE call stack and find the OUTERMOST
+ * node_modules entry (closest to user code), not the first one. This prevents
+ * mislabeling transitive dependency calls — if lodash calls something-evil,
+ * the signal gets attributed to something-evil (the user-installed dep), not
+ * lodash (the intermediary).
  * 
- * Security considerations:
- * - Read-only operations (never writes to filesystem)
- * - Defensive error handling for malformed stack traces
- * - No eval() or code execution
- * - Returns null for first-party code (not in node_modules)
+ * @param {string} stack - Raw stack trace string (from new Error().stack)
+ * @returns {object|null} { name, version, path } or null if first-party
+ */
+function getPackageFromStack(stack) {
+    try {
+        if (!stack || typeof stack !== 'string') {
+            return null;
+        }
+
+        const stackLines = stack.split('\n');
+        let lastAttribution = null;
+
+        // Walk ALL frames and find the LAST node_modules entry
+        // (closest to user code, outermost in the dependency tree)
+        for (const line of stackLines) {
+            const match = line.match(/\((.+?):\d+:\d+\)/);
+            if (!match) continue;
+
+            const filePath = match[1];
+            const nodeModulesIndex = filePath.indexOf('node_modules');
+            if (nodeModulesIndex === -1) continue;
+
+            const packageInfo = extractPackageInfo(filePath, nodeModulesIndex);
+            if (packageInfo) {
+                lastAttribution = packageInfo;
+            }
+        }
+
+        return lastAttribution;
+    } catch (err) {
+        return null;
+    }
+}
+
+/**
+ * Extract npm package attribution from an Error object.
  * 
  * @param {Error} error - Error object with stack trace (or new Error())
  * @returns {object|null} { name, version, path } or null if first-party
  */
 function resolvePackageFromStack(error) {
-    try {
-        // Security: Ensure we have a valid stack
-        if (!error || !error.stack) {
-            return null;
-        }
-
-        const stackLines = error.stack.split('\n');
-
-        for (const line of stackLines) {
-            // Extract file path from stack frame
-            // Format: "    at Function.name (path:line:col)"
-            const match = line.match(/\((.+?):\d+:\d+\)/);
-            if (!match) continue;
-
-            const filePath = match[1];
-
-            // Look for node_modules in the path
-            const nodeModulesIndex = filePath.indexOf('node_modules');
-            if (nodeModulesIndex === -1) {
-                // First-party application code - not a dependency
-                continue;
-            }
-
-            // Extract package path from node_modules
-            const packageInfo = extractPackageInfo(filePath, nodeModulesIndex);
-            if (packageInfo) {
-                return packageInfo;
-            }
-        }
-
-        // No third-party package found in stack trace
-        return null;
-    } catch (err) {
-        // Defensive: Never throw from attribution logic
-        // Fail-safe: Return null if we can't determine attribution
+    if (!error || !error.stack) {
         return null;
     }
+    return getPackageFromStack(error.stack);
 }
 
 /**
@@ -101,6 +99,7 @@ function extractPackageInfo(filePath, nodeModulesIndex) {
 
         // Handle scoped packages (@scope/package)
         if (parts[0] && parts[0].startsWith('@')) {
+            if (!parts[1]) return null;
             packageName = `${parts[0]}/${parts[1]}`;
             packageDir = path.join(
                 filePath.slice(0, nodeModulesIndex),
@@ -129,7 +128,6 @@ function extractPackageInfo(filePath, nodeModulesIndex) {
             path: packageDir
         };
     } catch (err) {
-        // Defensive: Malformed path or package structure
         return null;
     }
 }
@@ -137,55 +135,41 @@ function extractPackageInfo(filePath, nodeModulesIndex) {
 /**
  * Read and parse package.json with caching
  * 
- * Security:
- * - Read-only operation
- * - Cached to prevent repeated I/O
- * - Defensive parsing (handles malformed JSON)
- * 
  * @param {string} packageDir - Absolute path to package directory
  * @returns {object|null} Parsed package.json or null
  */
 function readPackageJson(packageDir) {
     try {
-        // Check cache first
         if (packageCache.has(packageDir)) {
             return packageCache.get(packageDir);
         }
 
         const packageJsonPath = path.join(packageDir, 'package.json');
-
-        // Security: Check file exists before reading to prevent errors
         if (!fs.existsSync(packageJsonPath)) {
             return null;
         }
 
         const content = fs.readFileSync(packageJsonPath, 'utf8');
         const packageJson = JSON.parse(content);
-
-        // Cache the result
         packageCache.set(packageDir, packageJson);
-
         return packageJson;
     } catch (err) {
-        // Defensive: Malformed JSON or read error
         return null;
     }
 }
 
 /**
  * Clear the package cache (useful for testing)
- * 
- * @returns {void}
  */
 function clearCache() {
     packageCache.clear();
 }
 
 /**
- * Create a new Error and resolve its stack immediately
- * Utility function for hooks to use
+ * Create a new Error and resolve its stack immediately.
+ * Utility function for hooks to use.
  * 
- * @returns {object|null} Package attribution
+ * @returns {object|null} Package attribution { name, version, path }
  */
 function resolveCurrentStack() {
     const error = new Error();
@@ -193,8 +177,70 @@ function resolveCurrentStack() {
     return resolvePackageFromStack(error);
 }
 
+/**
+ * Check if a package name matches a whitelist pattern.
+ * Supports: exact match ("express"), wildcard ("express@*"), scoped ("@types/*")
+ * 
+ * @param {string} packageName - Package name to check (e.g., "express")
+ * @param {string} pattern - Whitelist pattern (e.g., "express@*" or "@types/*")
+ * @returns {boolean} True if the package matches the pattern
+ */
+function matchesWhitelist(packageName, pattern) {
+    if (!packageName || !pattern) return false;
+
+    // Handle @scope/* patterns
+    if (pattern.endsWith('/*')) {
+        const scope = pattern.slice(0, -2);
+        return packageName === scope || packageName.startsWith(scope + '/');
+    }
+
+    // Handle pkg@* patterns (any version)
+    if (pattern.includes('@') && pattern.endsWith('*')) {
+        const namePart = pattern.slice(0, pattern.lastIndexOf('@'));
+        return packageName === namePart;
+    }
+
+    // Handle pkg@version patterns (exact)
+    if (pattern.includes('@')) {
+        return packageName === pattern;
+    }
+
+    // Plain name match
+    return packageName === pattern;
+}
+
+/**
+ * Check if a package is whitelisted based on its name and version.
+ * 
+ * @param {string} packageName - Package name
+ * @param {string} packageVersion - Package version
+ * @param {Array<string>} whitelist - Whitelist patterns array
+ * @returns {boolean} True if the package should be suppressed
+ */
+function isWhitelisted(packageName, packageVersion, whitelist) {
+    if (!whitelist || !Array.isArray(whitelist) || whitelist.length === 0) {
+        return false;
+    }
+
+    for (const pattern of whitelist) {
+        // Check with name@version
+        if (packageVersion && matchesWhitelist(`${packageName}@${packageVersion}`, pattern)) {
+            return true;
+        }
+        // Check with name only
+        if (matchesWhitelist(packageName, pattern)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 module.exports = {
     resolvePackageFromStack,
     resolveCurrentStack,
-    clearCache
+    getPackageFromStack,
+    clearCache,
+    matchesWhitelist,
+    isWhitelisted
 };

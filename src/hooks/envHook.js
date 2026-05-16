@@ -13,19 +13,12 @@
 'use strict';
 
 const { createSignal, SignalType } = require('../signals/signalTypes');
-const { resolveCurrentStack } = require('../attribution/resolver');
+const { resolveCurrentStack, isWhitelisted } = require('../attribution/resolver');
 
-/**
- * Global signal collector
- * Security: Signals are append-only during runtime
- */
 let signalCollector = [];
-
-/**
- * Store for original descriptor to support idempotent installation
- */
 let originalDescriptor = null;
 let isHookInstalled = false;
+let hookConfig = null;
 
 /**
  * Install environment variable access hook
@@ -42,9 +35,10 @@ let isHookInstalled = false;
  * - No secret capture: Only variable names are recorded
  * 
  * @param {Array} collector - Shared signal collector array
+ * @param {object} config - Bheeshma configuration
  * @returns {boolean} True if installed successfully
  */
-function install(collector) {
+function install(collector, config) {
     try {
         // Prevent double-installation
         if (isHookInstalled) {
@@ -52,6 +46,7 @@ function install(collector) {
         }
 
         signalCollector = collector;
+        hookConfig = config;
 
         // Store original process.env reference
         const originalEnv = process.env;
