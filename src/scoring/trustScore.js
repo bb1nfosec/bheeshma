@@ -27,7 +27,8 @@ const RISK_WEIGHTS = Object.freeze({
     [SignalType.HTTP_REQUEST]: 10,
     [SignalType.HTTPS_REQUEST]: 8,
     [SignalType.DNS_QUERY]: 4,
-    [SignalType.OBFUSCATION_DETECTED]: 25
+    [SignalType.OBFUSCATION_DETECTED]: 25,
+    'BLACKLISTED_PACKAGE': 100
 });
 
 /**

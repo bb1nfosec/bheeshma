@@ -12,7 +12,8 @@ const {
     CRYPTO_MINER_PATTERNS,
     DATA_EXFILTRATION_PATTERNS,
     BACKDOOR_PATTERNS,
-    CREDENTIAL_THEFT_PATTERNS
+    CREDENTIAL_THEFT_PATTERNS,
+    TYPOSQUAT_PATTERNS
 } = require('./malwareSignatures');
 
 /**
@@ -28,6 +29,7 @@ function analyzePatterns(signals, config = {}) {
         dataExfiltration: [],
         backdoors: [],
         credentialTheft: [],
+        typosquats: [],
         summary: {
             totalThreats: 0,
             highestSeverity: 'NONE'
@@ -53,23 +55,29 @@ function analyzePatterns(signals, config = {}) {
         results.backdoors = detectBackdoors(signals);
     }
 
-    // Detect credential theft
+    // Detect credential theft (always runs)
     results.credentialTheft = detectCredentialTheft(signals);
+
+    // Detect typosquat packages (check all observed package names)
+    results.typosquats = detectTyposquats(signals);
 
     // Calculate summary
     results.summary.totalThreats =
         results.cryptoMining.length +
         results.dataExfiltration.length +
         results.backdoors.length +
-        results.credentialTheft.length;
+        results.credentialTheft.length +
+        results.typosquats.length;
 
     // Determine highest severity
     if (results.backdoors.length > 0 || results.cryptoMining.length > 0) {
         results.summary.highestSeverity = 'CRITICAL';
     } else if (results.dataExfiltration.length > 0 || results.credentialTheft.length > 0) {
         results.summary.highestSeverity = 'HIGH';
-    } else if (results.summary.totalThreats > 0) {
+    } else if (results.typosquats.length > 0) {
         results.summary.highestSeverity = 'MEDIUM';
+    } else if (results.summary.totalThreats > 0) {
+        results.summary.highestSeverity = 'LOW';
     }
 
     return results;
@@ -268,6 +276,10 @@ function detectBackdoors(signals) {
 /**
  * Detect credential theft patterns
  * 
+ * Context-aware: Known config-loading packages (dotenv, convict, etc.)
+ * reading .env or config.json is EXPECTED behavior, not credential theft.
+ * For these packages, credential file reads are downgraded to LOW severity.
+ * 
  * @param {Array} signals - Signals to analyze
  * @returns {Array} Detected credential theft indicators
  */
@@ -292,17 +304,25 @@ function detectCredentialTheft(signals) {
             }
         }
 
-        // Check for credential file reads
+        // Check for credential file reads — context-aware
         if (signal.type === SignalType.FS_READ) {
-            const path = signal.metadata.path || '';
+            const filePath = signal.metadata.path || '';
+            const pkgName = (signal.package || '').toLowerCase();
 
             for (const credFile of CREDENTIAL_THEFT_PATTERNS.credentialFiles) {
-                if (path.includes(credFile)) {
+                if (filePath.includes(credFile)) {
+                    // Check if this is a known config loader doing its job
+                    const isConfigLoader = CREDENTIAL_THEFT_PATTERNS.knownConfigLoaders
+                        .some(loader => pkgName === loader || pkgName.startsWith(loader + '/'));
+
                     indicators.push({
                         type: 'CREDENTIAL_FILE_READ',
-                        severity: 'HIGH',
+                        severity: isConfigLoader ? 'LOW' : 'HIGH',
                         package: signal.package,
                         indicator: credFile,
+                        context: isConfigLoader
+                            ? `${signal.package} is a known config loader — reading ${credFile} is expected behavior`
+                            : undefined,
                         signal
                     });
                 }
@@ -313,10 +333,102 @@ function detectCredentialTheft(signals) {
     return indicators;
 }
 
+/**
+ * Detect typosquat packages by comparing observed package names against
+ * a list of popular packages using Levenshtein distance and character swaps.
+ *
+ * @param {Array} signals - Signals to analyze
+ * @returns {Array} Detected typosquat indicators
+ */
+function detectTyposquats(signals) {
+    const indicators = [];
+    const seen = new Set(); // Avoid duplicate detections per package
+
+    for (const signal of signals) {
+        if (!signal.package || seen.has(signal.package)) continue;
+
+        const pkgName = signal.package.toLowerCase();
+
+        for (const popular of TYPOSQUAT_PATTERNS.popularPackages) {
+            const popularLower = popular.toLowerCase();
+
+            // Levenshtein distance check
+            if (levenshteinDistance(pkgName, popularLower) === 1) {
+                seen.add(signal.package);
+                indicators.push({
+                    type: 'TYPOSQUAT_LEVENSHTEIN',
+                    severity: 'MEDIUM',
+                    package: signal.package,
+                    indicator: `"${signal.package}" is 1 edit away from "${popular}"`,
+                    signal
+                });
+                break; // One match per package is enough
+            }
+
+            // Character swap check (o→0, i→l, e→3)
+            for (const [original, replacement] of Object.entries(TYPOSQUAT_PATTERNS.techniques.swaps)) {
+                const swapped = popularLower.replaceAll(original, replacement);
+                if (pkgName === swapped) {
+                    seen.add(signal.package);
+                    indicators.push({
+                        type: 'TYPOSQUAT_SWAP',
+                        severity: 'MEDIUM',
+                        package: signal.package,
+                        indicator: `"${signal.package}" looks like "${popular}" with ${original}→${replacement} swap`,
+                        signal
+                    });
+                    break;
+                }
+            }
+
+            if (seen.has(signal.package)) break;
+        }
+    }
+
+    return indicators;
+}
+
+/**
+ * Calculate Levenshtein edit distance between two strings.
+ * Returns the minimum number of single-character edits (insertions,
+ * deletions, substitutions) to transform a into b.
+ *
+ * @param {string} a - First string
+ * @param {string} b - Second string
+ * @returns {number} Edit distance
+ */
+function levenshteinDistance(a, b) {
+    if (a === b) return 0;
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+
+    const matrix = [];
+    for (let i = 0; i <= b.length; i++) {
+        matrix[i] = [i];
+    }
+    for (let j = 0; j <= a.length; j++) {
+        matrix[0][j] = j;
+    }
+
+    for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+            const cost = a[j - 1] === b[i - 1] ? 0 : 1;
+            matrix[i][j] = Math.min(
+                matrix[i - 1][j] + 1,      // deletion
+                matrix[i][j - 1] + 1,      // insertion
+                matrix[i - 1][j - 1] + cost // substitution
+            );
+        }
+    }
+
+    return matrix[b.length][a.length];
+}
+
 module.exports = {
     analyzePatterns,
     detectCryptoMiners,
     detectDataExfiltration,
     detectBackdoors,
-    detectCredentialTheft
+    detectCredentialTheft,
+    detectTyposquats
 };

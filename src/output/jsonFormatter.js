@@ -50,6 +50,7 @@ function formatReport(scores, allSignals, patternResults) {
             dataExfiltration: patternResults.dataExfiltration.length,
             backdoors: patternResults.backdoors.length,
             credentialTheft: patternResults.credentialTheft.length,
+            typosquats: (patternResults.typosquats || []).length,
             details: {
                 cryptoMining: patternResults.cryptoMining.map(i => ({
                     type: i.type, severity: i.severity, package: i.package, indicator: i.indicator
@@ -61,6 +62,10 @@ function formatReport(scores, allSignals, patternResults) {
                     type: i.type, severity: i.severity, package: i.package, indicator: i.indicator
                 })),
                 credentialTheft: patternResults.credentialTheft.map(i => ({
+                    type: i.type, severity: i.severity, package: i.package, indicator: i.indicator,
+                    context: i.context
+                })),
+                typosquats: (patternResults.typosquats || []).map(i => ({
                     type: i.type, severity: i.severity, package: i.package, indicator: i.indicator
                 }))
             }

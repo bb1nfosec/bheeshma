@@ -225,13 +225,14 @@ function setupWorkerSignalCollection() {
 const obfuscationScannedPackages = new Set();
 
 /**
- * Add a signal to the collector, respecting whitelist.
+ * Add a signal to the collector, respecting whitelist and blacklist.
  * This is the centralized push point — all hooks should use this.
  *
- * Side effect: When a previously unseen package triggers a signal,
- * we run the obfuscation detector on its entry point. The resulting
- * OBFUSCATION_DETECTED signal (if any) is pushed directly to the
- * signals array (not via this function) to avoid infinite recursion.
+ * Side effects:
+ * - Whitelisted packages: signals are silently dropped
+ * - Blacklisted packages: signal is recorded + a synthetic CRITICAL
+ *   BLACKLISTED_PACKAGE signal is injected to guarantee maximum penalty
+ * - First signal from a package triggers obfuscation scan (via setImmediate)
  *
  * @param {object} signal - Signal object
  * @returns {boolean} True if signal was recorded (not whitelisted)
@@ -254,6 +255,28 @@ function recordSignal(signal) {
     }
 
     signals.push(signal);
+
+    // Blacklist enforcement: blacklisted packages get a forced CRITICAL signal
+    // This guarantees they hit trust score 0 regardless of actual behavior
+    if (signal.package && currentConfig && currentConfig.blacklist) {
+        if (currentConfig.blacklist.includes(signal.package)) {
+            // Only inject once per blacklisted package
+            const alreadyFlagged = signals.some(
+                s => s.type === 'BLACKLISTED_PACKAGE' && s.package === signal.package
+            );
+            if (!alreadyFlagged) {
+                signals.push({
+                    type: 'BLACKLISTED_PACKAGE',
+                    timestamp: signal.timestamp,
+                    package: signal.package,
+                    version: signal.version,
+                    metadata: {
+                        reason: `Package "${signal.package}" is on the blacklist`
+                    }
+                });
+            }
+        }
+    }
 
     // Trigger obfuscation scan for new packages (once per package)
     if (signal.package && !obfuscationScannedPackages.has(signal.package)) {
