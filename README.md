@@ -5,6 +5,8 @@
 **Runtime Dependency Behavior Monitor for Node.js**
 *The strace for npm packages.*
 
+<img src="assets/bheeshma-demo.gif" alt="bheeshma catching a malicious npm package at runtime" width="680">
+
 [![npm version](https://img.shields.io/npm/v/bheeshma.svg)](https://www.npmjs.com/package/bheeshma)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D14.0.0-brightgreen.svg)](https://nodejs.org/)
@@ -449,6 +451,26 @@ npm test        # 41/41 tests, no network required
 ```
 
 All tests run **offline** with **deterministic results**.
+
+---
+
+## Why Runtime, Not Static?
+
+Every major npm security tool — Socket.dev, Snyk, Dependabot, npm audit — is **pre-install static analysis**. They scan code *before* it runs. They cannot see what a package *actually does at runtime*.
+
+| | Static Analysis (Snyk, Dependabot) | **BHEESHMA (Runtime)** |
+|---|---|---|
+| Scans code before execution | ✅ | ❌ (watches what it *actually does*) |
+| Catches obfuscated runtime payloads | ❌ | ✅ |
+| Detects stolen env vars at runtime | ❌ | ✅ |
+| Sees dynamic DNS tunneling | ❌ | ✅ |
+| Catches eval/Function constructor | ❌ | ✅ |
+| Requires internet/database | ✅ | ❌ (100% offline) |
+| Zero dependencies | ❌ | ✅ |
+| SARIF / Code Scanning | ✅ (some) | ✅ |
+| Open source | ❌ (mostly) | ✅ |
+
+**BHEESHMA catches attacks that every static tool misses.** Use them together — static for known CVEs, bheeshma for everything else.
 
 ---
 
