@@ -32,7 +32,7 @@ const { getRiskLevel } = require('../scoring/trustScore');
  * @param {Array} allSignals - All captured signals
  * @returns {string} JSON string
  */
-function formatReport(scores, allSignals) {
+function formatReport(scores, allSignals, patternResults) {
     const report = {
         version: '1.0',
         timestamp: new Date().toISOString(),
@@ -40,6 +40,32 @@ function formatReport(scores, allSignals) {
         packages: buildPackageList(scores),
         signals: sanitizeSignals(allSignals)
     };
+
+    // Include pattern analysis results if any threats detected
+    if (patternResults && patternResults.summary && patternResults.summary.totalThreats > 0) {
+        report.patternAnalysis = {
+            totalThreats: patternResults.summary.totalThreats,
+            highestSeverity: patternResults.summary.highestSeverity,
+            cryptoMining: patternResults.cryptoMining.length,
+            dataExfiltration: patternResults.dataExfiltration.length,
+            backdoors: patternResults.backdoors.length,
+            credentialTheft: patternResults.credentialTheft.length,
+            details: {
+                cryptoMining: patternResults.cryptoMining.map(i => ({
+                    type: i.type, severity: i.severity, package: i.package, indicator: i.indicator
+                })),
+                dataExfiltration: patternResults.dataExfiltration.map(i => ({
+                    type: i.type, severity: i.severity, package: i.package, indicator: i.indicator
+                })),
+                backdoors: patternResults.backdoors.map(i => ({
+                    type: i.type, severity: i.severity, package: i.package, indicator: i.indicator
+                })),
+                credentialTheft: patternResults.credentialTheft.map(i => ({
+                    type: i.type, severity: i.severity, package: i.package, indicator: i.indicator
+                }))
+            }
+        };
+    }
 
     // Pretty print with 2-space indentation for readability
     return JSON.stringify(report, null, 2);

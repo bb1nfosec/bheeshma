@@ -1,7 +1,8 @@
 /**
  * BHEESHMA Test Harness v3
  * 
- * Tests: hooks, scoring, enforcement, whitelist, dedup, output formats
+ * Tests: hooks, scoring, enforcement, whitelist, dedup, output formats,
+ * negative tests (first-party code), obfuscation detection
  */
 
 'use strict';
@@ -24,9 +25,22 @@ function assert(condition, message) {
     }
 }
 
+/**
+ * Clear Node's require.cache for mock packages so their top-level
+ * code re-executes on next require(). Without this, tests after
+ * the first one that require()s a mock package get cached results.
+ */
+function clearRequireCache() {
+    const mockDir = path.join(__dirname, 'node_modules');
+    for (const key of Object.keys(require.cache)) {
+        if (key.startsWith(mockDir)) {
+            delete require.cache[key];
+        }
+    }
+}
+
 function setupMockPackages() {
-    const testDir = path.join(__dirname, '..');
-    const nodeModulesDir = path.join(testDir, 'test', 'node_modules');
+    const nodeModulesDir = path.join(__dirname, 'node_modules');
 
     const benignDir = path.join(nodeModulesDir, 'test-benign');
     if (!fs.existsSync(benignDir)) fs.mkdirSync(benignDir, { recursive: true });
@@ -60,6 +74,16 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * Full reset between tests:
+ * 1. Teardown bheeshma (removes hooks, clears signals + caches)
+ * 2. Clear Node's require.cache for mock packages
+ */
+function resetBetweenTests() {
+    bheeshma.teardown();
+    clearRequireCache();
+}
+
 async function runTests() {
     console.log('='.repeat(70));
     console.log('BHEESHMA Test Harness v3');
@@ -68,7 +92,7 @@ async function runTests() {
 
     setupMockPackages();
 
-    // Test 1: Initialization (6 hooks now including dns)
+    // Test 1: Initialization (6 hooks including dns)
     console.log('Test Group: Initialization');
     console.log('-'.repeat(70));
     const initResult = bheeshma.init();
@@ -78,7 +102,7 @@ async function runTests() {
     assert(initResult.installed.includes('fsHook'), 'fsHook should be installed');
     assert(initResult.installed.includes('netHook'), 'netHook should be installed');
     assert(initResult.installed.includes('childProcHook'), 'childProcHook should be installed');
-    bheeshma.teardown();
+    resetBetweenTests();
     console.log('');
 
     // Test 2: Benign Dependency
@@ -97,7 +121,7 @@ async function runTests() {
     if (benignPackages.length > 0) {
         assert(benignPackages[0].score >= 70, 'Benign dependency should have high trust score (>= 70)');
     }
-    bheeshma.teardown();
+    resetBetweenTests();
     console.log('');
 
     // Test 3: Suspicious Dependency
@@ -116,7 +140,7 @@ async function runTests() {
     if (suspiciousPackages.length > 0) {
         assert(suspiciousPackages[0].score < 100, 'Suspicious dependency should have reduced trust score (< 100)');
     }
-    bheeshma.teardown();
+    resetBetweenTests();
     console.log('');
 
     // Test 4: Whitelist Suppression
@@ -132,10 +156,10 @@ async function runTests() {
 
     const whitelistedSignals = bheeshma.getSignals();
     console.log(`  Signals after whitelisting: ${whitelistedSignals.length}`);
-    // All test-suspicious signals should be suppressed
+    // All test-suspicious signals should be suppressed at the hook layer
     const whitelistedPkgSignals = whitelistedSignals.filter(s => s.package === 'test-suspicious');
     assert(whitelistedPkgSignals.length === 0, 'Whitelisted package signals should be suppressed');
-    bheeshma.teardown();
+    resetBetweenTests();
     console.log('');
 
     // Test 5: Signal Deduplication
@@ -158,7 +182,7 @@ async function runTests() {
             assert(pkg.uniqueSignalCount <= pkg.signalCount, 'Unique count should be <= total count');
         }
     }
-    bheeshma.teardown();
+    resetBetweenTests();
     console.log('');
 
     // Test 6: Enforcement Mode
@@ -174,7 +198,7 @@ async function runTests() {
     if (enforcement.criticalPackages.length > 0) {
         assert(enforcement.criticalPackages[0].name !== undefined, 'Critical package should have name');
     }
-    bheeshma.teardown();
+    resetBetweenTests();
     console.log('');
 
     // Test 7: Output Formats
@@ -203,7 +227,10 @@ async function runTests() {
     assert(htmlReport.includes('<!DOCTYPE html>'), 'HTML report should be valid HTML');
     assert(htmlReport.includes('BHEESHMA'), 'HTML report should contain header');
     assert(htmlReport.includes('script'), 'HTML report should contain embedded JS');
-    bheeshma.teardown();
+
+    // Verify XSS protection — HTML report should contain escapeHtml function
+    assert(htmlReport.includes('escapeHtml'), 'HTML report should include XSS protection');
+    resetBetweenTests();
     console.log('');
 
     // Test 8: Per-package Thresholds
@@ -223,11 +250,10 @@ async function runTests() {
     const thresholdPackages = Array.from(thresholdScores.values());
     if (thresholdPackages.length > 0) {
         const pkg = thresholdPackages[0];
-        // With a very high threshold (90), a low score should still show the right level
         assert(pkg.riskLevel !== undefined, 'Risk level should be calculated with custom threshold');
         console.log(`  Custom threshold score: ${pkg.score}, riskLevel: ${pkg.riskLevel}`);
     }
-    bheeshma.teardown();
+    resetBetweenTests();
     console.log('');
 
     // Test 9: DNS Hook
@@ -247,10 +273,30 @@ async function runTests() {
     } catch (err) {
         assert(true, 'DNS hook test skipped (dns module unavailable)');
     }
-    bheeshma.teardown();
+    resetBetweenTests();
     console.log('');
 
-    // Test 10: Teardown
+    // Test 10: Negative Test — First-party code should NOT generate signals
+    console.log('Test Group: Negative Tests (First-Party Code)');
+    console.log('-'.repeat(70));
+    bheeshma.init();
+
+    // Simulate first-party code behavior (reading files, accessing env vars)
+    const testEnv = process.env.NODE_ENV;
+    const testPath = path.join(__dirname, 'harness.js');
+    if (fs.existsSync(testPath)) {
+        fs.readFileSync(testPath, 'utf8');
+    }
+    await sleep(100);
+
+    const firstPartySignals = bheeshma.getSignals().filter(s => s.package === null);
+    const thirdPartySignals = bheeshma.getSignals().filter(s => s.package !== null);
+    console.log(`  First-party signals: ${firstPartySignals.length}, Third-party signals: ${thirdPartySignals.length}`);
+    assert(thirdPartySignals.length === 0, 'No third-party signals should be generated from first-party code');
+    resetBetweenTests();
+    console.log('');
+
+    // Test 11: Teardown
     console.log('Test Group: Teardown');
     console.log('-'.repeat(70));
     const teardownResult = bheeshma.teardown();

@@ -18,12 +18,12 @@ const { getRiskLevel } = require('../scoring/trustScore');
  * @param {Array} allSignals - All captured signals
  * @returns {string} HTML string
  */
-function formatReport(scores, allSignals) {
+function formatReport(scores, allSignals, patternResults) {
     const summary = buildSummary(scores, allSignals);
     const packages = buildPackageList(scores);
     const signals = buildSignalList(allSignals);
 
-    const reportData = JSON.stringify({ summary, packages, signals });
+    const reportData = JSON.stringify({ summary, packages, signals, patternAnalysis: patternResults });
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -110,6 +110,17 @@ function formatReport(scores, allSignals) {
 <script>
 const DATA = ${reportData};
 
+// Security: Escape HTML entities to prevent XSS from package names/metadata
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 function init() {
   document.getElementById('timestamp').textContent = new Date(DATA.summary.timestamp).toLocaleString();
   renderSummary();
@@ -122,12 +133,12 @@ function init() {
 function renderSummary() {
   const s = DATA.summary;
   document.getElementById('summary-grid').innerHTML = \`
-    <div class="summary-card"><div class="value">\${s.totalPackages}</div><div class="label">Packages</div></div>
-    <div class="summary-card"><div class="value">\${s.totalSignals}</div><div class="label">Signals</div></div>
-    <div class="summary-card \${s.riskDistribution.critical > 0 ? 'critical-bg' : ''}"><div class="value critical">\${s.riskDistribution.critical}</div><div class="label">Critical</div></div>
-    <div class="summary-card \${s.riskDistribution.high > 0 ? 'high-bg' : ''}"><div class="value high">\${s.riskDistribution.high}</div><div class="label">High</div></div>
-    <div class="summary-card \${s.riskDistribution.medium > 0 ? 'medium-bg' : ''}"><div class="value medium">\${s.riskDistribution.medium}</div><div class="label">Medium</div></div>
-    <div class="summary-card"><div class="value low">\${s.riskDistribution.low}</div><div class="label">Low</div></div>
+    <div class="summary-card"><div class="value">\${escapeHtml(s.totalPackages)}</div><div class="label">Packages</div></div>
+    <div class="summary-card"><div class="value">\${escapeHtml(s.totalSignals)}</div><div class="label">Signals</div></div>
+    <div class="summary-card \${s.riskDistribution.critical > 0 ? 'critical-bg' : ''}"><div class="value critical">\${escapeHtml(s.riskDistribution.critical)}</div><div class="label">Critical</div></div>
+    <div class="summary-card \${s.riskDistribution.high > 0 ? 'high-bg' : ''}"><div class="value high">\${escapeHtml(s.riskDistribution.high)}</div><div class="label">High</div></div>
+    <div class="summary-card \${s.riskDistribution.medium > 0 ? 'medium-bg' : ''}"><div class="value medium">\${escapeHtml(s.riskDistribution.medium)}</div><div class="label">Medium</div></div>
+    <div class="summary-card"><div class="value low">\${escapeHtml(s.riskDistribution.low)}</div><div class="label">Low</div></div>
   \`;
 }
 
@@ -146,15 +157,15 @@ function renderPackages() {
     const cls = p.riskLevel.toLowerCase();
     const behaviors = Object.entries(p.behaviors || {})
       .filter(([,c]) => c > 0)
-      .map(([t,c]) => '<span class="behavior-tag">' + t.replace(/_/g,' ') + ' <span class="count">' + c + '</span></span>')
+      .map(([t,c]) => '<span class="behavior-tag">' + escapeHtml(t.replace(/_/g,' ')) + ' <span class="count">' + escapeHtml(c) + '</span></span>')
       .join('');
 
-    return \`<div class="package-card \${cls}-bg">
+    return \`<div class="package-card \${escapeHtml(cls)}-bg">
       <div class="package-header">
-        <span class="package-name">\${p.name}@\${p.version}</span>
-        <span class="score-badge \${cls}">\${p.trustScore}/100 [\${p.riskLevel}]</span>
+        <span class="package-name">\${escapeHtml(p.name)}@\${escapeHtml(p.version)}</span>
+        <span class="score-badge \${escapeHtml(cls)}">\${escapeHtml(p.trustScore)}/100 [\${escapeHtml(p.riskLevel)}]</span>
       </div>
-      <div style="color:#8b949e;font-size:13px;">\${p.signalCount} signals\${p.uniqueSignalCount ? ' (' + p.uniqueSignalCount + ' unique)' : ''}</div>
+      <div style="color:#8b949e;font-size:13px;">\${escapeHtml(p.signalCount)} signals\${p.uniqueSignalCount ? ' (' + escapeHtml(p.uniqueSignalCount) + ' unique)' : ''}</div>
       <div class="behaviors">\${behaviors}</div>
     </div>\`;
   }).join('');
@@ -165,12 +176,12 @@ function renderSignals() {
   document.getElementById('signal-count').textContent = '(' + DATA.signals.length + ')';
   const rows = DATA.signals.slice(0, 500).map(s => {
     const time = new Date(s.timestamp).toLocaleTimeString();
-    const details = Object.entries(s.metadata || {}).map(([k,v]) => k + ': ' + v).join(', ');
-    return '<tr><td>' + time + '</td><td>' + (s.package || '-') + '</td><td>' + s.type + '</td><td>' + (details || '-') + '</td></tr>';
+    const details = Object.entries(s.metadata || {}).map(([k,v]) => escapeHtml(k) + ': ' + escapeHtml(v)).join(', ');
+    return '<tr><td>' + escapeHtml(time) + '</td><td>' + escapeHtml(s.package || '-') + '</td><td>' + escapeHtml(s.type) + '</td><td>' + escapeHtml(details || '-') + '</td></tr>';
   });
   tbody.innerHTML = rows.join('');
   if (DATA.signals.length > 500) {
-    tbody.innerHTML += '<tr><td colspan="4" style="text-align:center;color:#8b949e;">Showing 500 of ' + DATA.signals.length + ' signals</td></tr>';
+    tbody.innerHTML += '<tr><td colspan="4" style="text-align:center;color:#8b949e;">Showing 500 of ' + escapeHtml(DATA.signals.length) + ' signals</td></tr>';
   }
 }
 
