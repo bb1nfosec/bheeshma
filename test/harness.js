@@ -504,7 +504,81 @@ async function runTests() {
     console.log('');
 
     // ===================================================================
-    // Test 15: Teardown
+    // Test 15: SARIF Output Format
+    // ===================================================================
+    console.log('Test Group: SARIF Output Format');
+    console.log('-'.repeat(70));
+    bheeshma.init();
+    require('./node_modules/test-suspicious/index.js');
+    await sleep(200);
+
+    const sarifReport = bheeshma.generateReport('sarif');
+    let sarifValid = false;
+    let sarifHasResults = false;
+    let sarifHasRules = false;
+    try {
+        const sarifData = JSON.parse(sarifReport);
+        sarifValid = sarifData.version === '2.1.0';
+        sarifHasResults = Array.isArray(sarifData.runs) &&
+            sarifData.runs.length > 0 &&
+            Array.isArray(sarifData.runs[0].results);
+        sarifHasRules = sarifData.runs &&
+            sarifData.runs[0].tool &&
+            sarifData.runs[0].tool.driver &&
+            Array.isArray(sarifData.runs[0].tool.driver.rules);
+    } catch (err) {}
+
+    assert(sarifValid, 'SARIF report should be version 2.1.0');
+    assert(sarifHasResults, 'SARIF report should contain results array');
+    assert(sarifHasRules, 'SARIF report should contain tool rules');
+    resetBetweenTests();
+    console.log('');
+
+    // ===================================================================
+    // Test 16: SARIF with pattern analysis (crypto mining)
+    // ===================================================================
+    console.log('Test Group: SARIF with Pattern Analysis');
+    console.log('-'.repeat(70));
+    bheeshma.init();
+    require('./node_modules/test-miner-mock/index.js');
+    await sleep(200);
+
+    const sarifWithPatterns = JSON.parse(bheeshma.generateReport('sarif'));
+    const sarifHasPatternResults = sarifWithPatterns.runs &&
+        sarifWithPatterns.runs[0].results &&
+        sarifWithPatterns.runs[0].results.some(r =>
+            r.ruleId && r.ruleId.startsWith('PATTERN_'));
+
+    assert(sarifHasPatternResults, 'SARIF report should include pattern analysis results');
+    resetBetweenTests();
+    console.log('');
+
+    // ===================================================================
+    // Test 17: SARIF deduplication (same signal multiple times → 1 result)
+    // ===================================================================
+    console.log('Test Group: SARIF Signal Deduplication');
+    console.log('-'.repeat(70));
+    bheeshma.init();
+    // require the suspicious package multiple times — signals should be deduped
+    require('./node_modules/test-suspicious/index.js');
+    require('./node_modules/test-suspicious/index.js');
+    await sleep(200);
+
+    const sarifDeduped = JSON.parse(bheeshma.generateReport('sarif'));
+    const sarifAllResults = sarifDeduped.runs[0].results;
+    // Filter out pattern-analysis results (PATTERN_*) to test signal dedup only
+    const sarifSignalResults = sarifAllResults.filter(r => !r.ruleId.startsWith('PATTERN_'));
+    const sarifResultCount = sarifSignalResults.length;
+    const sarifRawSignals = bheeshma.getSignals().filter(s => s.package !== null);
+    console.log(`  Raw signals: ${sarifRawSignals.length}, SARIF signal results: ${sarifResultCount}`);
+    assert(sarifResultCount <= sarifRawSignals.length,
+        'SARIF signal results should be <= raw signals (deduplication)');
+    assert(sarifResultCount > 0, 'SARIF should have at least 1 result');
+    resetBetweenTests();
+    console.log('');
+
+    // ===================================================================
+    // Test 18: Teardown
     // ===================================================================
     console.log('Test Group: Teardown');
     console.log('-'.repeat(70));

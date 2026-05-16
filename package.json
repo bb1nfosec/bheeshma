@@ -1,10 +1,12 @@
 {
   "name": "bheeshma",
-  "version": "3.0.0",
-  "description": "Runtime dependency behavior monitor for Node.js - detects supply-chain attacks with behavioral analysis, pattern detection, DNS monitoring, obfuscation detection, CI enforcement, and HTML reporting",
+  "version": "1.0.0",
+  "description": "Runtime dependency behavior monitor for Node.js — the strace for npm packages. Detects supply-chain attacks that static analysis misses. Zero dependencies. Zero config. Zero telemetry.",
   "main": "src/index.js",
   "bin": {
-    "bheeshma": "bin/bheeshma.js"
+    "bheeshma": "bin/bheeshma.js",
+    "bheeshma-ci": "bin/bheeshma-ci.js",
+    "bheeshma-install": "bin/bheeshma-install.js"
   },
   "scripts": {
     "test": "node test/harness.js"
@@ -12,6 +14,7 @@
   "keywords": [
     "security",
     "supply-chain",
+    "supply-chain-security",
     "runtime-monitoring",
     "dependency-analysis",
     "behavioral-security",
@@ -26,11 +29,18 @@
     "obfuscation-detection",
     "dns-tunneling",
     "ci-cd",
+    "github-actions",
+    "sarif",
+    "code-scanning",
     "policy-enforcement",
+    "npm-install",
+    "postinstall",
+    "shai-hulud",
     "esm",
-    "worker-threads"
+    "worker-threads",
+    "zero-dependencies"
   ],
-  "author": "Security Engineering Team",
+  "author": "bb1nfosec",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=14.0.0"
@@ -46,6 +56,7 @@
   "files": [
     "src/",
     "bin/",
+    ".github/actions/bheeshma/",
     "README.md",
     "LICENSE",
     "CHANGELOG.md",

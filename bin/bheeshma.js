@@ -2,13 +2,14 @@
 
 /**
  * BHEESHMA CLI Entry Point
- * 
+ *
  * Usage:
  *   bheeshma [options] -- <command>
  *   bheeshma --format json --output report.json -- node app.js
  *   bheeshma --enforce -- node app.js          (CI mode - exit 1 on CRITICAL)
- *   bheeshma --alert-webhook <url> -- node app.js
- *   bheeshma --format html --output report.html -- node app.js
+ *   bheeshma --format sarif --output results.sarif -- node app.js
+ *   bheeshma install [-- sarif]                (monitor npm install)
+ *   bheeshma ci -- <command>                   (CI-optimized mode)
  */
 
 'use strict';
@@ -18,10 +19,29 @@ const fs = require('fs');
 const path = require('path');
 
 /**
+ * Detect subcommand from first argument
+ */
+function detectSubcommand(args) {
+    const first = args[0];
+    if (first === 'install' || first === 'i') return 'install';
+    if (first === 'ci') return 'ci';
+    return null;
+}
+
+/**
  * Parse CLI arguments
  */
 function parseArgs() {
     const args = process.argv.slice(2);
+
+    // Check for subcommands first
+    const sub = detectSubcommand(args);
+    if (sub === 'install') {
+        return { subcommand: 'install', subArgs: args.slice(1) };
+    }
+    if (sub === 'ci') {
+        return { subcommand: 'ci', subArgs: args.slice(1) };
+    }
 
     const options = {
         format: 'cli',
@@ -55,6 +75,14 @@ function parseArgs() {
         } else if (arg === '--help' || arg === '-h') {
             printHelp();
             process.exit(0);
+        } else if (arg === '--version' || arg === '-v') {
+            try {
+                const pkg = require('../package.json');
+                console.log(`bheeshma v${pkg.version}`);
+            } catch (e) {
+                console.log('bheeshma v1.0.0');
+            }
+            process.exit(0);
         } else if (arg === '--') {
             options.scriptArgs = args.slice(i + 1);
             break;
@@ -74,35 +102,54 @@ function parseArgs() {
 function printHelp() {
     console.log(`
 BHEESHMA - Runtime Dependency Behavior Monitor
+The strace for npm packages. Zero dependencies. Zero config. Zero telemetry.
 
 Usage:
   bheeshma [options] -- <command>
   bheeshma [options] <script.js>
+  bheeshma install [options] [-- npm args]    Monitor npm install
+  bheeshma ci -- <command>                    CI-optimized mode (SARIF output)
+
+Modes:
+  (default)     Monitor any Node.js command or script
+  install       Monitor npm install for malicious postinstall behavior
+  ci            CI/CD-optimized mode with SARIF + exit codes
 
 Options:
-  --format <cli|json|html>   Output format (default: cli)
-  --output <file>            Write report to file instead of stdout
-  -o <file>                  Alias for --output
-  --enforce                  Exit with code 1 if any package is CRITICAL (CI mode)
-  --alert-webhook <url>      POST alert to webhook URL on CRITICAL findings
-  --config <path>            Path to .bheeshmarc.json config file
-  --help, -h                 Show this help message
+  --format <cli|json|html|sarif>  Output format (default: cli)
+  --output <file>                 Write report to file instead of stdout
+  -o <file>                       Alias for --output
+  --enforce                       Exit code 1 if any package is CRITICAL
+  --alert-webhook <url>           POST alert to webhook on CRITICAL findings
+  --config <path>                 Path to .bheeshmarc.json config file
+  --help, -h                      Show this help message
+  --version, -v                   Show version
 
-Enforcement Examples (CI/CD):
-  bheeshma --enforce -- node app.js
-  bheeshma --enforce --format json --output report.json -- npm test
+Quick Start (30 seconds):
+  npx bheeshma -- node app.js
+  npx bheeshma install
+  npx bheeshma --format sarif --output results.sarif -- npm test
+
+CI/CD (GitHub Actions):
+  - uses: bb1nfosec/bheeshma/.github/actions/bheeshma@main
+    with:
+      command: 'npm test'
+      fail-level: 'critical'
+
+Install Monitoring:
+  npx bheeshma install                      # Watch npm install behavior
+  npx bheeshma install -- --save-dev axios   # Monitor installing a specific package
+  npx bheeshma install ci                   # Monitor npm ci (lockfile-strict)
 
 Output Examples:
   bheeshma --format html --output report.html -- node app.js
   bheeshma --format json --output report.json -- node app.js
-
-Advanced:
-  bheeshma --enforce --alert-webhook https://hooks.slack.com/xxx -- node app.js
-  bheeshma --config .bheeshmarc.json -- node app.js
+  bheeshma --format sarif --output results.sarif -- npm test
 
 Security:
   BHEESHMA monitors runtime behavior of third-party npm dependencies.
   All data is local-only. No telemetry. No network communication.
+  Zero dependencies. Zero configuration required.
 
 For more information: https://github.com/bbinfosec/bheeshma
 `);
@@ -114,15 +161,46 @@ For more information: https://github.com/bbinfosec/bheeshma
 async function main() {
     const options = parseArgs();
 
+    // Delegate to subcommands
+    if (options.subcommand === 'install') {
+        // Delegate to bheeshma-install.js
+        const installCli = path.resolve(__dirname, 'bheeshma-install.js');
+        const { spawn } = require('child_process');
+        const child = spawn(process.execPath, [installCli, ...options.subArgs], {
+            stdio: 'inherit'
+        });
+        child.on('exit', (code) => process.exit(code || 0));
+        child.on('error', (err) => {
+            console.error('Error running install mode:', err.message);
+            process.exit(1);
+        });
+        return;
+    }
+
+    if (options.subcommand === 'ci') {
+        // Delegate to bheeshma-ci.js
+        const ciCli = path.resolve(__dirname, 'bheeshma-ci.js');
+        const { spawn } = require('child_process');
+        const child = spawn(process.execPath, [ciCli, ...options.subArgs], {
+            stdio: 'inherit'
+        });
+        child.on('exit', (code) => process.exit(code || 0));
+        child.on('error', (err) => {
+            console.error('Error running CI mode:', err.message);
+            process.exit(1);
+        });
+        return;
+    }
+
     // Validate options
     if (!options.scriptPath && options.scriptArgs.length === 0) {
-        console.error('Error: No script specified to monitor.\n');
+        console.error('Error: No command specified to monitor.\n');
         printHelp();
         process.exit(1);
     }
 
     // Validate format
-    const validFormats = ['cli', 'json', 'html'];
+    const validFormats = ['cli', 'json', 'html', 'sarif'];
     if (!validFormats.includes(options.format)) {
         console.error(`Error: Invalid format "${options.format}". Use: ${validFormats.join(', ')}`);
         process.exit(1);
@@ -185,6 +263,16 @@ async function main() {
                 console.error(`[BHEESHMA] HTML report written to: ${htmlPath}`);
             } catch (err) {
                 console.error(`[BHEESHMA] Error writing HTML report: ${err.message}`);
+            }
+        } else if (options.format === 'sarif') {
+            // SARIF should also default to file
+            const sarifPath = 'bheeshma-results.sarif';
+            try {
+                fs.writeFileSync(sarifPath, report, 'utf8');
+                console.error(`[BHEESHMA] SARIF report written to: ${sarifPath}`);
+            } catch (err) {
+                console.error(`[BHEESHMA] Error writing SARIF report: ${err.message}`);
+                console.log(report);
             }
         } else {
             console.log(report);
