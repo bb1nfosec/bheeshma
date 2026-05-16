@@ -367,7 +367,7 @@ function detectTyposquats(signals) {
 
             // Character swap check (o→0, i→l, e→3)
             for (const [original, replacement] of Object.entries(TYPOSQUAT_PATTERNS.techniques.swaps)) {
-                const swapped = popularLower.replaceAll(original, replacement);
+                const swapped = popularLower.split(original).join(replacement);
                 if (pkgName === swapped) {
                     seen.add(signal.package);
                     indicators.push({
