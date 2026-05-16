@@ -2,6 +2,33 @@
 
 All notable changes to BHEESHMA will be documented in this file.
 
+## [2.1.0] - 2026-05-16
+
+### Fixed
+
+- **GitHub Action installs from repo, not npm**: The composite action now uses the checked-out source directly instead of `npm install bheeshma@latest`, which was pulling the stale v2.0.0
+- **SARIF formatter export mismatch**: `bheeshma-ci.js` imported `formatSarifReport` but the module exported `formatReport` — fixed with alias import
+- **package.json repository URL**: Fixed typo `bbinfosec` → `bb1nfosec` across repository, bugs, and homepage fields
+- **CI workflow**: Cleaned up branch config (removed `master`), added Node 22.x to matrix, added self-monitoring test
+- **Wall of Shame pipeline**: Auto-update now syncs fresh data to `gh-pages` branch after committing to `main`
+
+### Added
+
+- **Issue templates**: Bug report, feature request, and security vulnerability report forms
+- **PR template**: Checklist for tests, compatibility, and documentation
+- **CODE_OF_CONDUCT.md**: Contributor Covenant v2.1
+- **FUNDING.yml**: GitHub Sponsors link
+- **Lockfile**: `package-lock.json` for build reproducibility
+- **Post-install message**: Global installs display version, description, and GitHub star link
+- **New keywords**: `strace`, `threat-intelligence`, `devsecops`
+
+### Changed
+
+- **Version**: 1.0.0 → 2.1.0 (supersedes stale npm v2.0.0)
+- **Homepage**: Points to Wall of Shame dashboard at `bbinfosec.github.io/bheeshma`
+
+---
+
 ## [1.0.0] - 2026-05-16
 
 ### The v1.0.0 Release

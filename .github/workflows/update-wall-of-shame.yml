@@ -2,12 +2,13 @@ name: Update Wall of Shame Threat Data
 
 on:
   schedule:
-    # Run daily at 06:00 UTC
     - cron: '0 6 * * *'
-  workflow_dispatch: # Allow manual trigger
+  workflow_dispatch:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
   update-threats:
@@ -15,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -24,7 +27,7 @@ jobs:
       - name: Fetch threat data
         run: node scripts/fetch-threats.js
 
-      - name: Commit updated data
+      - name: Commit and sync to gh-pages
         run: |
           git config user.name "bheeshma-bot[bot]"
           git config user.email "bheeshma-bot[bot]@users.noreply.github.com"
@@ -32,6 +35,16 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "data: update Wall of Shame threat data [skip ci]"
+            git commit -m "data: update Wall of Shame threat data"
             git push
+
+            # Sync to gh-pages branch
+            git fetch origin gh-pages
+            git checkout gh-pages
+            git checkout main -- dashboard/
+            mv dashboard/* . 2>/dev/null; rm -rf dashboard
+            git add -A
+            git commit -m "deploy: sync Wall of Shame dashboard" || true
+            git push origin gh-pages
+            git checkout main
           fi

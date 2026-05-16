@@ -1,0 +1,31 @@
+name: Feature Request
+description: Suggest a new feature or enhancement for bheeshma
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem does this feature solve? Is it related to a specific use case?
+      placeholder: "I want bheeshma to detect X because..."
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe your ideal solution
+      placeholder: "bheeshma could..."
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Other approaches or tools you've considered
+  - type: input
+    id: signal-type
+    attributes:
+      label: Relevant Signal Type (if applicable)
+      description: Which behavior does this relate to?
+      placeholder: "e.g., NET_CONNECT, ENV_ACCESS, SHELL_EXEC"

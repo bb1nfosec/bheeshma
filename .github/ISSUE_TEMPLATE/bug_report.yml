@@ -1,0 +1,47 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in bheeshma
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: What happened? What did you expect to happen?
+      placeholder: "bheeshma -- npm test showed false positive for..."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Minimal steps to reproduce the issue
+      placeholder: |
+        1. npx bheeshma install
+        2. Install package X
+        3. Observe false positive for...
+    validations:
+      required: true
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js Version
+      placeholder: "e.g., 20.x"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "e.g., Ubuntu 24.04, macOS, Windows"
+  - type: textarea
+    id: output
+    attributes:
+      label: bheeshma Output
+      description: Paste the full bheeshma output (CLI, JSON, or SARIF)
+      render: text
+  - type: input
+    id: package
+    attributes:
+      label: Package Being Monitored
+      description: Which npm package triggered the issue?
+      placeholder: "e.g., lodash, axios, express"

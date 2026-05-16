@@ -1,6 +1,6 @@
 {
   "name": "bheeshma",
-  "version": "1.0.0",
+  "version": "2.1.0",
   "description": "Runtime dependency behavior monitor for Node.js — the strace for npm packages. Detects supply-chain attacks that static analysis misses. Zero dependencies. Zero config. Zero telemetry.",
   "main": "src/index.js",
   "bin": {
@@ -9,7 +9,8 @@
     "bheeshma-install": "bin/bheeshma-install.js"
   },
   "scripts": {
-    "test": "node test/harness.js"
+    "test": "node test/harness.js",
+    "postinstall": "node -e \"if(process.env.npm_config_global){console.log('');console.log('  bheeshma v'+require('./package.json').version+' — strace for npm packages');console.log('  Runtime dependency behavior monitor for Node.js');console.log('');console.log('  Star us on GitHub if bheeshma saved your project:');console.log('  https://github.com/bb1nfosec/bheeshma');console.log('');}\""
   },
   "keywords": [
     "security",
@@ -38,7 +39,10 @@
     "shai-hulud",
     "esm",
     "worker-threads",
-    "zero-dependencies"
+    "zero-dependencies",
+    "strace",
+    "threat-intelligence",
+    "devsecops"
   ],
   "author": "bb1nfosec",
   "license": "Apache-2.0",
@@ -47,12 +51,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/bbinfosec/bheeshma.git"
+    "url": "https://github.com/bb1nfosec/bheeshma.git"
   },
   "bugs": {
-    "url": "https://github.com/bbinfosec/bheeshma/issues"
+    "url": "https://github.com/bb1nfosec/bheeshma/issues"
   },
-  "homepage": "https://github.com/bbinfosec/bheeshma#readme",
+  "homepage": "https://bbinfosec.github.io/bheeshma/",
   "files": [
     "src/",
     "bin/",

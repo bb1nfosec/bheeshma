@@ -98,7 +98,7 @@ function ciLog(level, message) {
  * Generate SARIF report and write to file
  */
 function writeSarifReport(outputPath, options) {
-    const { formatSarifReport } = require('../src/output/sarifFormatter');
+    const { formatReport: formatSarifReport } = require('../src/output/sarifFormatter');
     const { analyzePatterns } = require('../src/patterns/patternMatcher');
 
     const scores = bheeshma.getTrustScores();

@@ -1,5 +1,5 @@
-name: 'Bheeshma CI'
-description: 'Runtime dependency behavior monitor for npm packages. Detects supply chain attacks that static analysis misses — Shai-Hulud, axios compromise, typosquats, and more.'
+name: 'Bheeshma Runtime Monitor'
+description: 'Runtime dependency behavior monitor for npm packages — the strace for npm. Detects supply chain attacks that static analysis misses. Outputs SARIF for GitHub Code Scanning.'
 author: 'bb1nfosec'
 
 branding:
@@ -8,10 +8,10 @@ branding:
 
 inputs:
   command:
-    description: 'Command to run under monitoring (e.g., "npm test", "node app.js", "npm install")'
+    description: 'Command to run under monitoring (e.g., "npm test", "node app.js")'
     required: true
   fail-level:
-    description: 'Minimum risk level to fail the build (critical, high, medium, low)'
+    description: 'Minimum risk level to fail the build'
     required: false
     default: 'critical'
   config:
@@ -27,23 +27,18 @@ inputs:
     required: false
     default: 'true'
   upload-sarif:
-    description: 'Upload SARIF to GitHub Code Scanning (requires security-events: write permission)'
+    description: 'Upload SARIF to GitHub Code Scanning'
     required: false
     default: 'true'
 
 runs:
   using: 'composite'
   steps:
-    - name: Install bheeshma
-      shell: bash
-      run: npm install --no-save bheeshma@latest
-      env:
-        NODE_AUTH_TOKEN: ${{ inputs.node-token }}
-
     - name: Run bheeshma monitoring
       shell: bash
       id: bheeshma
       run: |
+        BHEESHMA_ROOT="${{ github.action_path }}/../../.."
         ARGS=""
         if [ -n "${{ inputs.config }}" ]; then
           ARGS="$ARGS --config ${{ inputs.config }}"
@@ -54,8 +49,8 @@ runs:
           ARGS="$ARGS --no-skip-low"
         fi
 
-        echo "::group::Bheeshma Runtime Monitoring"
-        npx bheeshma-ci $ARGS -- ${{ inputs.command }}
+        echo "::group::Bheeshma — Runtime Dependency Monitor"
+        node "$BHEESHMA_ROOT/bin/bheeshma-ci.js" $ARGS -- ${{ inputs.command }}
         BHEESHMA_EXIT=$?
         echo "::endgroup::"
         exit $BHEESHMA_EXIT

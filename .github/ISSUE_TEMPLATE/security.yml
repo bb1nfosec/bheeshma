@@ -1,0 +1,43 @@
+name: Security Vulnerability Report
+description: Report a security vulnerability in bheeshma itself
+labels: ["security"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Security Vulnerability Report
+
+        **Please do not report security vulnerabilities publicly.** This form creates a private issue visible only to maintainers.
+
+        If you prefer encrypted email, contact: vignesh4303@gmail.com
+  - type: textarea
+    id: vulnerability
+    attributes:
+      label: Vulnerability Description
+      description: Describe the vulnerability clearly
+      placeholder: "bheeshma fails to detect X when Y..."
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: What is the potential impact if exploited?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Code or steps to reproduce the vulnerability
+      placeholder: |
+        ```javascript
+        // PoC
+        ```
+    validations:
+      required: true
+  - type: textarea
+    id: fix
+    attributes:
+      label: Suggested Fix (optional)
+      description: If you have a fix in mind, describe it

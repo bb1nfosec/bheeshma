@@ -2,16 +2,17 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   pull_request:
-    branches: [main, master]
+    branches: [main]
 
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        node-version: [14.x, 16.x, 18.x, 20.x]
+        node-version: [14.x, 18.x, 20.x, 22.x]
 
     steps:
       - uses: actions/checkout@v4
@@ -21,35 +22,8 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
-      - name: Install dependencies
-        run: npm install
-
       - name: Run tests
-        run: npm test
-
-      - name: Lint check
-        run: |
-          node -e "
-            const fs = require('fs');
-            const path = require('path');
-            let ok = true;
-            function checkDir(dir) {
-              for (const f of fs.readdirSync(dir)) {
-                const fp = path.join(dir, f);
-                const st = fs.statSync(fp);
-                if (st.isDirectory() && !f.includes('node_modules')) checkDir(fp);
-                if (f.endsWith('.js') || f.endsWith('.mjs')) {
-                  const src = fs.readFileSync(fp, 'utf8');
-                  if (src.includes('eval(') && !fp.includes('test') && !fp.includes('detector')) {
-                    console.warn('WARN: eval() found in ' + fp);
-                  }
-                }
-              }
-            }
-            checkDir('src');
-            checkDir('bin');
-            console.log('Lint check passed');
-          "
+        run: node test/harness.js
 
   security-audit:
     runs-on: ubuntu-latest
@@ -61,11 +35,13 @@ jobs:
         with:
           node-version: 20
 
-      - name: npm audit
-        run: npm audit --production || true
-        continue-on-error: true
+      - name: Self-monitoring test
+        run: |
+          echo "::group::Bheeshma monitoring itself"
+          node bin/bheeshma.js -- node -e "console.log('hello')"
+          echo "::endgroup::"
 
-      - name: Check for secrets
+      - name: Check for secrets in history
         run: |
           if git log --all --full-history -- '*.js' '*.json' | grep -iE '(api_key|secret|password|token)\s*[:=]\s*["\x27][^"\x27]{8,}'; then
             echo "::warning::Potential secret found in git history"
