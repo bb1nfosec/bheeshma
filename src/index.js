@@ -21,8 +21,14 @@ const jsonFormatter = require('./output/jsonFormatter');
 const htmlFormatter = require('./output/htmlFormatter');
 const { loadConfig, getDefaultConfig } = require('./config/configLoader');
 const { analyzePatterns } = require('./patterns/patternMatcher');
-const { isWhitelisted } = require('./attribution/resolver');
+const resolver = require('./attribution/resolver');
+const isWhitelisted = resolver.isWhitelisted;
+const getPackageFromStack = resolver.getPackageFromStack;
+const clearResolverCache = resolver.clearCache;
 const { mergeConfig, validateConfig } = require('./config/schema');
+const detector = require('./obfuscation/detector');
+const scanPackage = detector.scanPackage;
+const clearScanCache = detector.clearScanCache;
 
 /**
  * Global signal collector
@@ -45,6 +51,27 @@ let currentConfig = null;
  * Merges signals from worker threads into the main store
  */
 let workerSignalHandler = null;
+
+/**
+ * Signal recorder proxy — passed to hooks instead of the raw array.
+ * Intercepts .push() to enforce whitelist suppression and maxSignals limit
+ * at the hook layer (not just at report time).
+ *
+ * Hooks call recorder.push(signal) just like they would on an array,
+ * but the whitelist and maxSignals checks run BEFORE the signal is stored.
+ * This makes the README claim true: "whitelisted packages are suppressed
+ * at the hook layer — signals are never even recorded."
+ */
+function createSignalRecorder() {
+    return {
+        push(signal) {
+            return recordSignal(signal);
+        },
+        get length() {
+            return signals.length;
+        }
+    };
+}
 
 /**
  * Initialize BHEESHMA monitoring
@@ -78,38 +105,42 @@ function init(options = {}) {
     const installed = [];
     const failed = [];
 
+    // Create recorder proxy — hooks use this instead of raw signals array
+    // so whitelist and maxSignals are enforced at push time
+    const recorder = createSignalRecorder();
+
     // Install hooks sequentially based on configuration
-    if (currentConfig.hooks.env && envHook.install(signals, currentConfig)) {
+    if (currentConfig.hooks.env && envHook.install(recorder, currentConfig)) {
         installed.push('envHook');
     } else if (currentConfig.hooks.env) {
         failed.push('envHook');
     }
 
-    if (currentConfig.hooks.fs && fsHook.install(signals, currentConfig)) {
+    if (currentConfig.hooks.fs && fsHook.install(recorder, currentConfig)) {
         installed.push('fsHook');
     } else if (currentConfig.hooks.fs) {
         failed.push('fsHook');
     }
 
-    if (currentConfig.hooks.net && netHook.install(signals, currentConfig)) {
+    if (currentConfig.hooks.net && netHook.install(recorder, currentConfig)) {
         installed.push('netHook');
     } else if (currentConfig.hooks.net) {
         failed.push('netHook');
     }
 
-    if (currentConfig.hooks.childProcess && childProcHook.install(signals, currentConfig)) {
+    if (currentConfig.hooks.childProcess && childProcHook.install(recorder, currentConfig)) {
         installed.push('childProcHook');
     } else if (currentConfig.hooks.childProcess) {
         failed.push('childProcHook');
     }
 
-    if (currentConfig.hooks.http && httpHook.install(signals, currentConfig)) {
+    if (currentConfig.hooks.http && httpHook.install(recorder, currentConfig)) {
         installed.push('httpHook');
     } else if (currentConfig.hooks.http) {
         failed.push('httpHook');
     }
 
-    if (currentConfig.hooks.dns && dnsHook.install(signals, currentConfig)) {
+    if (currentConfig.hooks.dns && dnsHook.install(recorder, currentConfig)) {
         installed.push('dnsHook');
     } else if (currentConfig.hooks.dns) {
         failed.push('dnsHook');
@@ -130,35 +161,78 @@ function init(options = {}) {
 
 /**
  * Set up worker thread signal collection.
- * When a worker thread posts signals via parentPort, merge them into
- * the main process signal store.
+ *
+ * Strategy: Intercept the Worker constructor so that every new worker gets
+ * a message listener. Workers use parentPort.postMessage() to send signals;
+ * the main thread receives them on worker.on('message').
+ *
+ * Note: process.on('message') only works when the main process itself was
+ * spawned as a child. Worker threads communicate via the Worker object's
+ * message event, not process.on('message').
  */
 function setupWorkerSignalCollection() {
     try {
-        const { isMainThread, parentPort } = require('worker_threads');
+        const { Worker, isMainThread } = require('worker_threads');
 
-        if (!isMainThread && parentPort) {
-            // This IS a worker thread — we should be using worker-bootstrap.js
-            // which sends signals to the main thread. Nothing to do here.
+        if (!isMainThread) {
+            // This IS a worker thread — worker-bootstrap.js handles relay
+            return;
         }
 
-        if (isMainThread) {
-            // Main thread: set up to receive signals from workers
-            process.on('message', (msg) => {
-                if (msg && msg.type === 'BHEESHMA_SIGNAL' && msg.signal) {
-                    signals.push(msg.signal);
+        // Intercept Worker constructor to attach message listeners
+        const OriginalWorker = Worker;
+        // eslint-disable-next-line no-global-assign
+        const worker_threads = require('worker_threads');
+        worker_threads.Worker = class BheeshmaWorker extends OriginalWorker {
+            constructor(filename, options) {
+                // Inject worker-bootstrap.js so hooks are reinstalled in the worker
+                const execArgv = options && options.execArgv
+                    ? [...options.execArgv]
+                    : process.execArgv || [];
+                const bootstrapPath = require('path').resolve(__dirname, 'worker-bootstrap.js');
+                if (!execArgv.some(arg => arg.includes('worker-bootstrap'))) {
+                    execArgv.push('--require', bootstrapPath);
                 }
-            });
-        }
+
+                super(filename, { ...options, execArgv });
+
+                // Listen for signals from this worker
+                this.on('message', (msg) => {
+                    if (msg && msg.type === 'BHEESHMA_SIGNAL') {
+                        if (msg.signal) {
+                            // Single signal
+                            signals.push(msg.signal);
+                        } else if (msg.signals && Array.isArray(msg.signals)) {
+                            // Batch of signals
+                            for (const sig of msg.signals) {
+                                signals.push(sig);
+                            }
+                        }
+                    }
+                });
+            }
+        };
     } catch (err) {
         // worker_threads not available (Node < 11.7)
     }
 }
 
 /**
+ * Track which packages have been scanned for obfuscation.
+ * Maps package name → boolean (true = scanned).
+ * Scanning happens once per package, on first signal.
+ */
+const obfuscationScannedPackages = new Set();
+
+/**
  * Add a signal to the collector, respecting whitelist.
  * This is the centralized push point — all hooks should use this.
- * 
+ *
+ * Side effect: When a previously unseen package triggers a signal,
+ * we run the obfuscation detector on its entry point. The resulting
+ * OBFUSCATION_DETECTED signal (if any) is pushed directly to the
+ * signals array (not via this function) to avoid infinite recursion.
+ *
  * @param {object} signal - Signal object
  * @returns {boolean} True if signal was recorded (not whitelisted)
  */
@@ -180,6 +254,28 @@ function recordSignal(signal) {
     }
 
     signals.push(signal);
+
+    // Trigger obfuscation scan for new packages (once per package)
+    if (signal.package && !obfuscationScannedPackages.has(signal.package)) {
+        obfuscationScannedPackages.add(signal.package);
+        // Run scan asynchronously (non-blocking) to avoid slowing the hooked call
+        // Use setImmediate so the current hook call completes first
+        setImmediate(() => {
+            try {
+                if (signal.stackTrace) {
+                    const pkgAttribution = getPackageFromStack(signal.stackTrace);
+                    if (pkgAttribution && pkgAttribution.path) {
+                        // Pass the raw signals array directly (not the recorder)
+                        // to avoid infinite recursion through recordSignal
+                        scanPackage(signal.package, pkgAttribution.path, signals, currentConfig);
+                    }
+                }
+            } catch (err) {
+                // Obfuscation scan failure should never break anything
+            }
+        });
+    }
+
     return true;
 }
 
@@ -217,18 +313,24 @@ function getConfig() {
 /**
  * Generate formatted report
  * 
+ * Runs pattern analysis on all collected signals and includes results.
+ * 
  * @param {string} format - 'cli', 'json', or 'html'
  * @returns {string} Formatted report
  */
 function generateReport(format = 'cli') {
     const scores = getTrustScores();
 
+    // Run pattern analysis on collected signals
+    const patternConfig = currentConfig ? currentConfig.patterns : {};
+    const patternResults = analyzePatterns(signals, patternConfig);
+
     if (format === 'json') {
-        return jsonFormatter.formatReport(scores, signals);
+        return jsonFormatter.formatReport(scores, signals, patternResults);
     } else if (format === 'html') {
-        return htmlFormatter.formatReport(scores, signals);
+        return htmlFormatter.formatReport(scores, signals, patternResults);
     } else {
-        return cliFormatter.formatReport(scores, signals);
+        return cliFormatter.formatReport(scores, signals, patternResults);
     }
 }
 
@@ -343,6 +445,10 @@ function teardown() {
 
     hooksInstalled = false;
     signals.length = 0;
+    currentConfig = null;
+    obfuscationScannedPackages.clear();
+    clearResolverCache();
+    clearScanCache();
 
     return {
         success: true,

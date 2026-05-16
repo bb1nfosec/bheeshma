@@ -50,9 +50,10 @@ const signalEmoji = {
  * 
  * @param {Map} scores - Trust scores by package
  * @param {Array} allSignals - All captured signals
+ * @param {object} patternResults - Pattern analysis results (optional)
  * @returns {string} Formatted CLI output
  */
-function formatReport(scores, allSignals) {
+function formatReport(scores, allSignals, patternResults) {
     const lines = [];
 
     // Header
@@ -79,6 +80,12 @@ function formatReport(scores, allSignals) {
             lines.push(formatPackage(packageKey, data));
             lines.push('');
         }
+    }
+
+    // Pattern analysis results (malicious behavior correlations)
+    if (patternResults && patternResults.summary && patternResults.summary.totalThreats > 0) {
+        lines.push(formatPatternAnalysis(patternResults));
+        lines.push('');
     }
 
     // Footer
@@ -201,6 +208,62 @@ function colorize(text, color) {
 
     const colorCode = colors[color] || '';
     return `${colorCode}${text}${colors.reset}`;
+}
+
+/**
+ * Format pattern analysis results (malicious behavior correlations)
+ * 
+ * @param {object} patternResults - Results from analyzePatterns()
+ * @returns {string} Formatted pattern analysis section
+ */
+function formatPatternAnalysis(patternResults) {
+    const lines = [];
+
+    lines.push(colorize('='.repeat(70), 'bright'));
+    lines.push(colorize('  Pattern Analysis — Behavioral Correlations', 'bright'));
+    lines.push(colorize('='.repeat(70), 'bright'));
+    lines.push('');
+    lines.push(colorize(`  Threats detected: ${patternResults.summary.totalThreats} (highest: ${patternResults.summary.highestSeverity})`, 'red'));
+    lines.push('');
+
+    // Crypto mining
+    if (patternResults.cryptoMining.length > 0) {
+        lines.push(colorize('  ⛏️  Cryptocurrency Mining Indicators:', 'red'));
+        for (const indicator of patternResults.cryptoMining) {
+            lines.push(`     [${indicator.severity}] ${indicator.package}: ${indicator.type} — ${indicator.indicator}`);
+        }
+        lines.push('');
+    }
+
+    // Data exfiltration
+    if (patternResults.dataExfiltration.length > 0) {
+        lines.push(colorize('  📤  Data Exfiltration Indicators:', 'red'));
+        for (const indicator of patternResults.dataExfiltration) {
+            const detail = indicator.details ? ` (${indicator.details.join(', ')})` : '';
+            lines.push(`     [${indicator.severity}] ${indicator.package}: ${indicator.indicator}${detail}`);
+        }
+        lines.push('');
+    }
+
+    // Backdoors
+    if (patternResults.backdoors.length > 0) {
+        lines.push(colorize('  🚪  Backdoor Indicators:', 'red'));
+        for (const indicator of patternResults.backdoors) {
+            lines.push(`     [${indicator.severity}] ${indicator.package}: ${indicator.type} — ${indicator.indicator}`);
+        }
+        lines.push('');
+    }
+
+    // Credential theft
+    if (patternResults.credentialTheft.length > 0) {
+        lines.push(colorize('  🔑  Credential Theft Indicators:', 'yellow'));
+        for (const indicator of patternResults.credentialTheft) {
+            lines.push(`     [${indicator.severity}] ${indicator.package}: ${indicator.type} — ${indicator.indicator}`);
+        }
+        lines.push('');
+    }
+
+    return lines.join('\n');
 }
 
 module.exports = {

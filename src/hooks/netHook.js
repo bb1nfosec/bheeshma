@@ -14,8 +14,6 @@
 'use strict';
 
 const net = require('net');
-const http = require('http');
-const https = require('https');
 const { createSignal, SignalType } = require('../signals/signalTypes');
 const { resolveCurrentStack, isWhitelisted } = require('../attribution/resolver');
 
@@ -28,9 +26,7 @@ let signalCollector = [];
  * Store original functions for restoration
  */
 const originalFunctions = {
-    netConnect: null,
-    httpRequest: null,
-    httpsRequest: null
+    netConnect: null
 };
 
 let isHookInstalled = false;
@@ -52,14 +48,10 @@ function install(collector, config) {
         signalCollector = collector;
         hookConfig = config;
 
-        // Hook net.connect
-        hookNetConnect();
-
-        // Hook http.request and http.get
-        hookHttpRequest();
-
-        // Hook https.request and https.get
-        hookHttpsRequest();
+        // Hook net.connect (low-level TCP connections)
+        // Note: HTTP/HTTPS is handled separately by httpHook.js which provides
+        // richer analysis (headers, suspiciousness scoring). We intentionally
+        // do NOT wrap http.request/https.request here to avoid conflicts.
 
         isHookInstalled = true;
         return true;
@@ -98,54 +90,6 @@ function hookNetConnect() {
 }
 
 /**
- * Hook http.request and http.get
- * 
- * @returns {void}
- */
-function hookHttpRequest() {
-    originalFunctions.httpRequest = http.request;
-
-    http.request = function (...args) {
-        try {
-            const connInfo = parseHttpArgs(args);
-            if (connInfo) {
-                emitNetSignal(connInfo.host, connInfo.port, 'http');
-            }
-        } catch (err) {
-            // Fail-safe
-        }
-
-        return originalFunctions.httpRequest.apply(this, args);
-    };
-
-    // http.get calls http.request internally, so we only need to hook request
-}
-
-/**
- * Hook https.request and https.get
- * 
- * @returns {void}
- */
-function hookHttpsRequest() {
-    originalFunctions.httpsRequest = https.request;
-
-    https.request = function (...args) {
-        try {
-            const connInfo = parseHttpArgs(args);
-            if (connInfo) {
-                emitNetSignal(connInfo.host, connInfo.port, 'https');
-            }
-        } catch (err) {
-            // Fail-safe
-        }
-
-        return originalFunctions.httpsRequest.apply(this, args);
-    };
-
-    // https.get calls https.request internally
-}
-
-/**
  * Parse net.connect arguments to extract host and port
  * 
  * @param {Array} args - Arguments to net.connect
@@ -171,56 +115,6 @@ function parseNetConnectArgs(args) {
             return {
                 port: args[0],
                 host: args[1] || 'localhost'
-            };
-        }
-
-        return null;
-    } catch (err) {
-        return null;
-    }
-}
-
-/**
- * Parse http/https request arguments to extract URL info
- * 
- * http.request can be called as:
- * - http.request(url)
- * - http.request(options)
- * - http.request(url, options)
- * 
- * @param {Array} args - Arguments to http.request
- * @returns {object|null} { host, port } or null
- */
-function parseHttpArgs(args) {
-    try {
-        if (args.length === 0) {
-            return null;
-        }
-
-        const firstArg = args[0];
-
-        // Parse URL string
-        if (typeof firstArg === 'string') {
-            const url = new URL(firstArg);
-            return {
-                host: url.hostname,
-                port: url.port ? parseInt(url.port, 10) : (url.protocol === 'https:' ? 443 : 80)
-            };
-        }
-
-        // Parse URL object
-        if (firstArg instanceof URL) {
-            return {
-                host: firstArg.hostname,
-                port: firstArg.port ? parseInt(firstArg.port, 10) : 80
-            };
-        }
-
-        // Parse options object
-        if (typeof firstArg === 'object' && firstArg !== null) {
-            return {
-                host: firstArg.hostname || firstArg.host || 'localhost',
-                port: firstArg.port || 80
             };
         }
 
@@ -291,12 +185,6 @@ function uninstall() {
         // Restore original functions
         if (originalFunctions.netConnect) {
             net.connect = originalFunctions.netConnect;
-        }
-        if (originalFunctions.httpRequest) {
-            http.request = originalFunctions.httpRequest;
-        }
-        if (originalFunctions.httpsRequest) {
-            https.request = originalFunctions.httpsRequest;
         }
 
         isHookInstalled = false;

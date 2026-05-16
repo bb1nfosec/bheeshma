@@ -28,15 +28,15 @@ const originalFunctions = {
 
 /**
  * Known exfiltration DNS services
+ * NOTE: ngrok.io and localtunnel.me are EXCLUDED — they are legitimate
+ * dev tools, not exfil services. canarytokens.com is EXCLUDED — it's a
+ * DEFENSIVE tool, not an attack tool.
  */
 const KNOWN_EXFIL_DOMAINS = [
     'dnshook.site',
     'requestbin.com',
     'webhook.site',
-    'pipedream.com',
-    'ngrok.io',
-    'localtunnel.me',
-    'canarytokens.com'
+    'pipedream.com'
 ];
 
 /**
@@ -109,12 +109,8 @@ function emitDnsSignal(hostname, function_) {
         const attribution = resolveCurrentStack();
         if (!attribution) return;
 
-        // Check whitelist
-        if (hookConfig && hookConfig.whitelist) {
-            if (isWhitelisted(attribution.name, attribution.version, hookConfig.whitelist)) {
-                return;
-            }
-        }
+        // Note: Whitelist checking is handled centrally by the signal recorder
+        // in index.js (createSignalRecorder) — no need to check here.
 
         const analysis = analyzeHostname(hostname);
 
@@ -177,9 +173,9 @@ function analyzeHostname(hostname) {
     // Extract subdomain parts
     const parts = hostname.split('.');
 
-    // Check known exfil services (match against any part or the full hostname)
+    // Check known exfil services (match against domain end, not substring)
     for (const exfilDomain of KNOWN_EXFIL_DOMAINS) {
-        if (hostname.endsWith(exfilDomain) || hostname.includes(exfilDomain)) {
+        if (hostname === exfilDomain || hostname.endsWith('.' + exfilDomain)) {
             analysis.knownExfilService = true;
             analysis.indicators.push(`Known exfil service: ${exfilDomain}`);
         }
