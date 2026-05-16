@@ -15,8 +15,7 @@ node_modules/
 .git/
 .gitignore
 
-# CI/CD
-.github/
+# CI/CD (note: .github/actions/bheeshma/ is included via package.json files whitelist)
 
 # Development
 example.js

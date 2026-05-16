@@ -35,7 +35,7 @@ By participating in this project, you agree to maintain a respectful, profession
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/bheeshma.git
+git clone https://github.com/bb1nfosec/bheeshma.git
 cd bheeshma
 
 # Install dependencies (none for core runtime, but needed for development)

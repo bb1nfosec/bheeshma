@@ -27,61 +27,61 @@ const SARIF_RULES = [
         id: 'SHELL_EXEC',
         shortDescription: { text: 'Shell command execution by third-party package' },
         fullDescription: { text: 'A third-party npm package spawned a shell command or child process. This is the highest-risk behavior — supply chain attacks commonly use shell execution to install backdoors, steal credentials, or deploy miners.' },
-        helpUri: 'https://github.com/bbinfosec/bheeshma#signal-types'
+        helpUri: 'https://github.com/bb1nfosec/bheeshma#signal-types'
     },
     {
         id: 'OBFUSCATION_DETECTED',
         shortDescription: { text: 'Code obfuscation detected in third-party package' },
         fullDescription: { text: 'A third-party npm package contains obfuscated code (eval, Function constructor, hex/Base64 encoding, string concatenation). Obfuscation is a strong indicator of malicious intent — legitimate packages rarely need to hide their logic.' },
-        helpUri: 'https://github.com/bbinfosec/bheeshma#signal-types'
+        helpUri: 'https://github.com/bb1nfosec/bheeshma#signal-types'
     },
     {
         id: 'BLACKLISTED_PACKAGE',
         shortDescription: { text: 'Package is on the deny list' },
         fullDescription: { text: 'A third-party npm package is explicitly blacklisted in your bheeshma configuration. This package is known to be malicious or unwanted.' },
-        helpUri: 'https://github.com/bbinfosec/bheeshma#configuration'
+        helpUri: 'https://github.com/bb1nfosec/bheeshma#configuration'
     },
     {
         id: 'FS_WRITE',
         shortDescription: { text: 'File system write by third-party package' },
         fullDescription: { text: 'A third-party npm package wrote to the file system. Malicious packages use file writes to install backdoors (e.g., ~/.ssh/authorized_keys), modify scripts, or deploy payloads.' },
-        helpUri: 'https://github.com/bbinfosec/bheeshma#signal-types'
+        helpUri: 'https://github.com/bb1nfosec/bheeshma#signal-types'
     },
     {
         id: 'HTTP_REQUEST',
         shortDescription: { text: 'Outbound HTTP request by third-party package' },
         fullDescription: { text: 'A third-party npm package made an outbound HTTP (non-TLS) request. Unencrypted HTTP requests can leak data and are commonly used for data exfiltration.' },
-        helpUri: 'https://github.com/bbinfosec/bheeshma#signal-types'
+        helpUri: 'https://github.com/bb1nfosec/bheeshma#signal-types'
     },
     {
         id: 'HTTPS_REQUEST',
         shortDescription: { text: 'Outbound HTTPS request by third-party package' },
         fullDescription: { text: 'A third-party npm package made an outbound HTTPS request. While encrypted, the destination host may still be a data exfiltration endpoint.' },
-        helpUri: 'https://github.com/bbinfosec/bheeshma#signal-types'
+        helpUri: 'https://github.com/bb1nfosec/bheeshma#signal-types'
     },
     {
         id: 'NET_CONNECT',
         shortDescription: { text: 'Raw TCP connection by third-party package' },
         fullDescription: { text: 'A third-party npm package opened a raw TCP connection. This is often used for reverse shells, C2 communication, or data exfiltration.' },
-        helpUri: 'https://github.com/bbinfosec/bheeshma#signal-types'
+        helpUri: 'https://github.com/bb1nfosec/bheeshma#signal-types'
     },
     {
         id: 'ENV_ACCESS',
         shortDescription: { text: 'Environment variable access by third-party package' },
         fullDescription: { text: 'A third-party npm package accessed an environment variable. This is benign for config loaders (dotenv) but suspicious for packages that should not need env access — e.g., a string utility reading AWS_SECRET_ACCESS_KEY.' },
-        helpUri: 'https://github.com/bbinfosec/bheeshma#signal-types'
+        helpUri: 'https://github.com/bb1nfosec/bheeshma#signal-types'
     },
     {
         id: 'FS_READ',
         shortDescription: { text: 'File system read by third-party package' },
         fullDescription: { text: 'A third-party npm package read a file from the file system. Malicious packages commonly read ~/.npmrc, ~/.ssh/, .env, and credential files for exfiltration.' },
-        helpUri: 'https://github.com/bbinfosec/bheeshma#signal-types'
+        helpUri: 'https://github.com/bb1nfosec/bheeshma#signal-types'
     },
     {
         id: 'DNS_QUERY',
         shortDescription: { text: 'DNS query by third-party package' },
         fullDescription: { text: 'A third-party npm package performed a DNS lookup. DNS tunneling is a data exfiltration technique that encodes stolen data in DNS queries to bypass firewalls.' },
-        helpUri: 'https://github.com/bbinfosec/bheeshma#signal-types'
+        helpUri: 'https://github.com/bb1nfosec/bheeshma#signal-types'
     }
 ];
 
@@ -237,7 +237,7 @@ function buildResultFingerprint(signal) {
  */
 function formatReport(scores, allSignals, patternResults, options = {}) {
     const toolVersion = options.toolVersion || '1.0.0';
-    const repoUri = options.repoUri || 'https://github.com/bbinfosec/bheeshma';
+    const repoUri = options.repoUri || 'https://github.com/bb1nfosec/bheeshma';
 
     // Deduplicate signals for cleaner SARIF output
     const fingerprintMap = new Map();

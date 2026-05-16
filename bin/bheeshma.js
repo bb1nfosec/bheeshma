@@ -151,7 +151,7 @@ Security:
   All data is local-only. No telemetry. No network communication.
   Zero dependencies. Zero configuration required.
 
-For more information: https://github.com/bbinfosec/bheeshma
+For more information: https://github.com/bb1nfosec/bheeshma
 `);
 }
 

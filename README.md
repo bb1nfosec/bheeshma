@@ -8,9 +8,9 @@
 [![npm version](https://img.shields.io/npm/v/bheeshma.svg)](https://www.npmjs.com/package/bheeshma)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D14.0.0-brightgreen.svg)](https://nodejs.org/)
-[![CI](https://github.com/bbinfosec/bheeshma/actions/workflows/ci.yml/badge.svg)](https://github.com/bbinfosec/bheeshma/actions/workflows/ci.yml)
+[![CI](https://github.com/bb1nfosec/bheeshma/actions/workflows/ci.yml/badge.svg)](https://github.com/bb1nfosec/bheeshma/actions/workflows/ci.yml)
 [![Tests](https://img.shields.io/badge/tests-41%2F41%20passing-success.svg)]()
-[![Wall of Shame](https://img.shields.io/badge/Wall%20of%20Shame-20%20threats-red.svg)](https://bbinfosec.github.io/bheeshma/)
+[![Wall of Shame](https://img.shields.io/badge/Wall%20of%20Shame-20%20threats-red.svg)](https://bb1nfosec.github.io/bheeshma/)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-success.svg)]()
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
@@ -329,11 +329,11 @@ Or use `bheeshma --config .bheeshmarc.json -- node app.js`.
 
 ## Wall of Shame Dashboard
 
-[![Visit Wall of Shame](https://img.shields.io/badge/Visit-Wall%20of%20Shame-red?style=for-the-badge)](https://bbinfosec.github.io/bheeshma/)
+[![Visit Wall of Shame](https://img.shields.io/badge/Visit-Wall%20of%20Shame-red?style=for-the-badge)](https://bb1nfosec.github.io/bheeshma/)
 
 The **bheeshma Wall of Shame** is a live threat intelligence dashboard that tracks every known npm supply chain attack and shows how bheeshma catches them.
 
-**Live at:** [bbinfosec.github.io/bheeshma](https://bbinfosec.github.io/bheeshma/)
+**Live at:** [bb1nfosec.github.io/bheeshma](https://bb1nfosec.github.io/bheeshma/)
 
 ### What It Shows
 

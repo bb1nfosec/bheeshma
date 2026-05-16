@@ -56,7 +56,7 @@
   "bugs": {
     "url": "https://github.com/bb1nfosec/bheeshma/issues"
   },
-  "homepage": "https://bbinfosec.github.io/bheeshma/",
+  "homepage": "https://bb1nfosec.github.io/bheeshma/",
   "files": [
     "src/",
     "bin/",

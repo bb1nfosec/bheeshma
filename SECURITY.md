@@ -8,6 +8,7 @@ BHEESHMA is a security tool designed to protect Node.js applications from supply
 
 | Version | Supported          |
 | ------- | ------------------ |
+| 2.1.x   | :white_check_mark: |
 | 1.0.x   | :white_check_mark: |
 | < 1.0   | :x:                |
 
@@ -38,7 +39,7 @@ BHEESHMA is a security tool designed to protect Node.js applications from supply
 
 ### Where to Report
 
-create a public GitHub issue for security vulnerabilities.
+**Do NOT** create a public GitHub issue for security vulnerabilities.
 
 Alternatively, use GitHub Security Advisories:
 - Go to the Security tab

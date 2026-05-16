@@ -25,7 +25,7 @@ All notable changes to BHEESHMA will be documented in this file.
 ### Changed
 
 - **Version**: 1.0.0 → 2.1.0 (supersedes stale npm v2.0.0)
-- **Homepage**: Points to Wall of Shame dashboard at `bbinfosec.github.io/bheeshma`
+- **Homepage**: Points to Wall of Shame dashboard at `bb1nfosec.github.io/bheeshma`
 
 ---
 
