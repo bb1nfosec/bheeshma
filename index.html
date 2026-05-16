@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>bheeshma Wall of Shame — npm Supply Chain Threat Tracker</title>
+  <meta name="description" content="Real-time dashboard tracking npm supply chain attacks. See every known malicious package, typosquat, backdoor, and credential theft attempt — and how bheeshma catches them all at runtime.">
+  <meta property="og:title" content="bheeshma Wall of Shame — npm Supply Chain Threat Tracker">
+  <meta property="og:description" content="Real-time dashboard tracking npm supply chain attacks. 20+ curated threats. 100% bheeshma detection coverage.">
+  <meta property="og:url" content="https://bbinfosec.github.io/bheeshma/">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="bheeshma Wall of Shame">
+  <meta name="twitter:description" content="Real-time npm supply chain threat tracker by bheeshma.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0f;
+      --card: #111118;
+      --border: #27272a;
+      --text: #e4e4e7;
+      --muted: #71717a;
+      --dim: #52525b;
+      --red: #ef4444;
+      --orange: #f97316;
+      --yellow: #eab308;
+      --green: #22c55e;
+      --blue: #3b82f6;
+      --purple: #8b5cf6;
+      --pink: #ec4899;
+      --cyan: #06b6d4;
+      --lime: #84cc16;
+      --rose: #f43f5e;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+
+    /* Grid background */
+    .grid-bg {
+      position: fixed; inset: 0; z-index: 0; opacity: 0.03; pointer-events: none;
+      background-image: linear-gradient(rgba(239,68,68,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(239,68,68,0.3) 1px, transparent 1px);
+      background-size: 50px 50px;
+    }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 1rem; position: relative; z-index: 1; }
+
+    /* Header */
+    header {
+      border-bottom: 1px solid rgba(239,68,68,0.15);
+      background: rgba(10,10,15,0.85);
+      backdrop-filter: blur(16px);
+      position: sticky; top: 0; z-index: 50;
+      padding: 1rem 0;
+    }
+    .header-inner { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; }
+    .header-left { display: flex; align-items: center; gap: 0.75rem; }
+    .header-logo { position: relative; }
+    .header-logo svg { color: var(--red); }
+    .pulse-dot { position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; background: var(--red); border-radius: 50%; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.3); } }
+    .header-title { font-size: 1.25rem; font-weight: 700; }
+    .header-title span { color: var(--red); }
+    .header-title .sub { color: var(--muted); font-weight: 400; }
+    .header-sub { font-size: 0.75rem; color: var(--dim); font-family: 'JetBrains Mono', monospace; }
+    .header-right { display: flex; align-items: center; gap: 0.75rem; font-size: 0.7rem; color: var(--dim); }
+    .live-dot { width: 6px; height: 6px; background: var(--green); border-radius: 50%; animation: pulse 2s infinite; display: inline-block; margin-right: 4px; }
+    .version-badge { border: 1px solid rgba(239,68,68,0.3); color: #ef4444; padding: 2px 8px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; }
+
+    /* Stat Cards */
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; margin-top: 1.5rem; }
+    .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; transition: border-color 0.2s; }
+    .stat-card:hover { border-color: rgba(239,68,68,0.3); }
+    .stat-label { font-size: 0.7rem; color: var(--dim); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat-value { font-size: 1.5rem; font-weight: 700; margin: 0.25rem 0; }
+    .stat-sub { font-size: 0.65rem; color: var(--dim); }
+
+    /* Cards */
+    .card { background: var(--card); border: 1px solid rgba(39,39,42,0.6); border-radius: 10px; overflow: hidden; }
+    .card-header { padding: 0.875rem 1rem 0.5rem; }
+    .card-title { font-size: 0.8rem; font-weight: 600; color: #d4d4d8; display: flex; align-items: center; gap: 0.5rem; }
+    .card-title svg { width: 16px; height: 16px; }
+    .card-desc { font-size: 0.7rem; color: var(--dim); margin-top: 0.25rem; }
+    .card-body { padding: 0.5rem 1rem 1rem; }
+
+    /* Charts grid */
+    .charts-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 1rem; margin-top: 1rem; }
+    @media (max-width: 768px) { .charts-grid { grid-template-columns: 1fr; } }
+
+    /* Canvas chart */
+    .chart-canvas { width: 100%; height: 220px; }
+
+    /* Type legend */
+    .type-legend { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; margin-top: 0.5rem; }
+    .type-legend-item { display: flex; align-items: center; gap: 4px; font-size: 0.6rem; color: var(--muted); }
+    .type-legend-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+    /* Signal bars */
+    .signal-bar-container { display: flex; flex-direction: column; gap: 0.35rem; }
+    .signal-bar-row { display: flex; align-items: center; gap: 0.5rem; }
+    .signal-bar-label { width: 100px; font-size: 0.65rem; color: #a1a1aa; text-align: right; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .signal-bar-track { flex: 1; height: 18px; background: rgba(39,39,42,0.5); border-radius: 4px; overflow: hidden; position: relative; }
+    .signal-bar-fill { height: 100%; border-radius: 4px; transition: width 0.8s ease; }
+    .signal-bar-count { width: 24px; font-size: 0.65rem; color: var(--muted); text-align: right; flex-shrink: 0; }
+
+    /* Coverage badge */
+    .coverage-badge { margin-left: auto; background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.3); color: #22c55e; padding: 2px 8px; border-radius: 4px; font-size: 0.6rem; font-weight: 600; white-space: nowrap; }
+
+    /* Filters */
+    .filters { margin-top: 1.5rem; }
+    .search-box { position: relative; flex: 1; }
+    .search-box input {
+      width: 100%; padding: 0.625rem 0.625rem 0.625rem 2.25rem;
+      background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); font-size: 0.8rem; outline: none; transition: border-color 0.2s;
+    }
+    .search-box input:focus { border-color: rgba(239,68,68,0.4); }
+    .search-box input::placeholder { color: var(--dim); }
+    .search-icon { position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--dim); }
+    .filter-row { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-top: 0.75rem; }
+    .filter-btn {
+      padding: 0.3rem 0.6rem; border-radius: 6px; font-size: 0.7rem; cursor: pointer; border: 1px solid var(--border);
+      background: transparent; color: var(--muted); transition: all 0.2s; display: flex; align-items: center; gap: 4px;
+    }
+    .filter-btn:hover { color: var(--text); background: rgba(39,39,42,0.5); }
+    .filter-btn.active-sev { background: rgba(239,68,68,0.15); color: #ef4444; border-color: rgba(239,68,68,0.3); }
+    .filter-btn.active-type { background: rgba(249,115,22,0.15); color: #f97316; border-color: rgba(249,115,22,0.3); }
+    .filter-count { font-size: 0.6rem; opacity: 0.6; }
+
+    /* Threat Cards */
+    .threats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 0.75rem; margin-top: 1rem; }
+    @media (max-width: 480px) { .threats-grid { grid-template-columns: 1fr; } }
+    .threat-card {
+      background: var(--card); border: 1px solid rgba(39,39,42,0.6); border-radius: 10px;
+      padding: 0.875rem; cursor: pointer; transition: all 0.2s;
+    }
+    .threat-card:hover { border-color: rgba(63,63,70,0.8); }
+    .threat-card.expanded { border-color: rgba(239,68,68,0.3); box-shadow: 0 0 0 1px rgba(239,68,68,0.1); }
+    .threat-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; }
+    .threat-pkg { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+    .threat-icon { flex-shrink: 0; color: #ef4444; }
+    .threat-pkg-name { font-size: 0.85rem; font-weight: 600; color: #e4e4e7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .threat-pkg-ver { font-size: 0.7rem; color: var(--dim); }
+    .severity-badge { padding: 2px 8px; border-radius: 4px; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.05em; flex-shrink: 0; border: 1px solid; }
+    .sev-critical { background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.3); color: #ef4444; }
+    .sev-high { background: rgba(249,115,22,0.15); border-color: rgba(249,115,22,0.3); color: #f97316; }
+    .sev-medium { background: rgba(234,179,8,0.15); border-color: rgba(234,179,8,0.3); color: #eab308; }
+    .sev-low { background: rgba(34,197,94,0.15); border-color: rgba(34,197,94,0.3); color: #22c55e; }
+    .threat-title { font-size: 0.72rem; color: var(--muted); margin-top: 0.5rem; }
+    .threat-desc { font-size: 0.68rem; color: var(--dim); margin-top: 0.375rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .signal-tags { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.625rem; }
+    .signal-tag { font-size: 0.58rem; padding: 1px 6px; border-radius: 3px; background: rgba(34,197,94,0.06); border: 1px solid rgba(34,197,94,0.2); color: rgba(34,197,94,0.8); }
+    .threat-meta { display: flex; justify-content: space-between; align-items: center; font-size: 0.6rem; color: #52525b; margin-top: 0.625rem; }
+    .status-badge { padding: 1px 6px; border-radius: 3px; font-size: 0.55rem; font-weight: 600; border: 1px solid; }
+    .status-active { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.3); color: #ef4444; }
+    .status-removed { background: rgba(39,39,42,0.3); border-color: var(--border); color: var(--muted); }
+    .status-patched { background: rgba(34,197,94,0.08); border-color: rgba(34,197,94,0.2); color: #22c55e; }
+    .status-unpublished { background: rgba(113,113,122,0.1); border-color: rgba(113,113,122,0.3); color: #71717a; }
+
+    /* Expanded detail */
+    .threat-detail { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid rgba(39,39,42,0.6); display: none; }
+    .threat-card.expanded .threat-detail { display: block; }
+    .detail-label { font-size: 0.65rem; font-weight: 600; color: #a1a1aa; margin-bottom: 0.25rem; }
+    .detail-text { font-size: 0.68rem; color: var(--muted); line-height: 1.6; }
+    .detail-refs { margin-top: 0.5rem; }
+    .detail-ref { display: flex; align-items: center; gap: 0.25rem; font-size: 0.6rem; color: #60a5fa; text-decoration: none; word-break: break-all; margin-top: 0.25rem; }
+    .detail-ref:hover { color: #93bbfd; }
+    .cve-tag { font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; color: #ef4444; margin-top: 0.5rem; }
+
+    /* CTA */
+    .cta-card { margin-top: 1.5rem; background: linear-gradient(to right, rgba(239,68,68,0.08), var(--card), rgba(34,197,94,0.08)); border: 1px solid rgba(39,39,42,0.6); border-radius: 10px; padding: 2rem; text-align: center; }
+    .cta-title { font-size: 1.1rem; font-weight: 700; margin-top: 0.75rem; }
+    .cta-desc { font-size: 0.8rem; color: var(--muted); max-width: 540px; margin: 0.5rem auto 1rem; }
+    .cta-buttons { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; }
+    .cta-btn { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1.25rem; border-radius: 8px; font-size: 0.8rem; font-weight: 600; text-decoration: none; transition: all 0.2s; }
+    .cta-btn-primary { background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+    .cta-btn-primary:hover { background: rgba(239,68,68,0.25); }
+    .cta-btn-secondary { background: rgba(39,39,42,0.6); color: #d4d4d8; border: 1px solid rgba(63,63,70,0.5); }
+    .cta-btn-secondary:hover { background: rgba(39,39,42,0.8); }
+
+    /* Footer */
+    footer { border-top: 1px solid rgba(39,39,42,0.3); margin-top: 2rem; padding: 1.25rem 0; }
+    .footer-inner { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; font-size: 0.65rem; color: #3f3f46; }
+
+    /* Empty state */
+    .empty-state { text-align: center; padding: 3rem; color: var(--dim); }
+    .empty-state svg { width: 48px; height: 48px; margin: 0 auto 0.75rem; color: #27272a; }
+    .empty-state p { font-size: 0.8rem; }
+
+    /* Loading */
+    .loading { text-align: center; padding: 4rem; }
+    .loading-spinner { width: 48px; height: 48px; color: #ef4444; animation: pulse 2s infinite; margin: 0 auto 1rem; }
+    .loading-text { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: var(--muted); }
+
+    /* Responsive */
+    @media (max-width: 640px) {
+      .header-title { font-size: 1rem; }
+      .stats-grid { grid-template-columns: 1fr 1fr; }
+      .stat-value { font-size: 1.25rem; }
+      .threats-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="grid-bg"></div>
+
+  <!-- Loading -->
+  <div id="loading" class="loading">
+    <div class="loading-spinner">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+    </div>
+    <p class="loading-text">Scanning threat landscape...</p>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="dashboard" style="display:none;">
+    <header>
+      <div class="container">
+        <div class="header-inner">
+          <div class="header-left">
+            <div class="header-logo">
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <div class="pulse-dot"></div>
+            </div>
+            <div>
+              <div class="header-title"><span>bheeshma</span> <span class="sub">Wall of Shame</span></div>
+              <div class="header-sub">Real-time npm supply chain threat tracker</div>
+            </div>
+          </div>
+          <div class="header-right">
+            <span><span class="live-dot"></span>Live</span>
+            <span class="version-badge font-mono">v1.0.0</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+      <!-- Stats -->
+      <div class="stats-grid" id="stats"></div>
+
+      <!-- Charts -->
+      <div class="charts-grid" id="charts"></div>
+
+      <!-- Signal Coverage -->
+      <div class="card" style="margin-top:1rem;" id="coverage-card"></div>
+
+      <!-- Filters -->
+      <div class="filters" id="filters"></div>
+
+      <!-- Threat Cards -->
+      <div class="threats-grid" id="threats-grid"></div>
+
+      <!-- CTA -->
+      <div class="cta-card">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" style="margin:0 auto;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <div class="cta-title">Protect your npm pipeline with bheeshma</div>
+        <p class="cta-desc">Zero dependencies. SARIF output. GitHub Action integration. Catch every threat on this wall before it reaches your production environment.</p>
+        <div class="cta-buttons">
+          <a href="https://github.com/bbinfosec/bheeshma" class="cta-btn cta-btn-primary" target="_blank">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            View on GitHub
+          </a>
+          <a href="https://github.com/bbinfosec/bheeshma#quick-start" class="cta-btn cta-btn-secondary" target="_blank">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            Quick Start
+          </a>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      <div class="container footer-inner">
+        <span class="font-mono">bheeshma Wall of Shame — Powered by OSV API + curated threat intelligence</span>
+        <span id="footer-meta"></span>
+      </div>
+    </footer>
+  </div>
+
+  <script>
+    const COLORS = ['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f43f5e'];
+
+    const TYPE_ICONS = {
+      'malware': '&#x1F988;', 'typosquat': '&#x1F50D;', 'backdoor': '&#x2620;',
+      'data-exfil': '&#x1F441;', 'crypto-miner': '&#x26A1;', 'credential-theft': '&#x1F6AB;',
+      'dependency-confusion': '&#x26A0;', 'protest-ware': '&#x1F4DD;',
+      'supply-chain': '&#x1F30D;', 'postinstall-attack': '&#x1F4BB;',
+    };
+
+    let DATA = null;
+    let filterSev = 'all';
+    let filterType = 'all';
+    let searchQ = '';
+
+    async function load() {
+      try {
+        const res = await fetch('data/threats.json');
+        DATA = await res.json();
+        render();
+      } catch(e) {
+        document.getElementById('loading').innerHTML = '<p style="color:#ef4444;font-family:JetBrains Mono,monospace;">Failed to load threat data. Check the data/threats.json file.</p>';
+      }
+    }
+
+    function render() {
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('dashboard').style.display = 'block';
+      renderStats();
+      renderCharts();
+      renderCoverage();
+      renderFilters();
+      renderThreats();
+      document.getElementById('footer-meta').textContent =
+        `${DATA.metadata.totalCurated} threats tracked | Updated ${new Date(DATA.metadata.generated).toLocaleDateString()}`;
+    }
+
+    function renderStats() {
+      const s = DATA.stats;
+      document.getElementById('stats').innerHTML = `
+        <div class="stat-card">
+          <div class="stat-label">Threats Tracked</div>
+          <div class="stat-value">${DATA.metadata.totalCurated}</div>
+          <div class="stat-sub">Curated + verified</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Critical / High</div>
+          <div class="stat-value" style="color:#f97316;">${s.severity.critical} / ${s.severity.high}</div>
+          <div class="stat-sub">Active danger level</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Bheeshma Coverage</div>
+          <div class="stat-value" style="color:#22c55e;">${s.bheeshmaCoverage.percent}%</div>
+          <div class="stat-sub">${s.bheeshmaCoverage.avgSignalsPerThreat} avg signals/threat</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Downloads at Risk</div>
+          <div class="stat-value" style="color:#f97316;">${s.totalDownloadsAtRisk}</div>
+          <div class="stat-sub">Combined weekly</div>
+        </div>
+      `;
+    }
+
+    function renderCharts() {
+      const chartsEl = document.getElementById('charts');
+      const typeData = Object.entries(DATA.stats.typeDistribution);
+      const trendData = DATA.monthlyTrends || [];
+
+      chartsEl.innerHTML = `
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+              Supply Chain Attack Trend (2024-2025)
+            </div>
+          </div>
+          <div class="card-body"><canvas id="trendChart" class="chart-canvas"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+              Attack Types
+            </div>
+          </div>
+          <div class="card-body"><canvas id="typeChart" class="chart-canvas"></canvas>
+            <div class="type-legend">
+              ${typeData.map(([name, val], i) => `
+                <span class="type-legend-item">
+                  <span class="type-legend-dot" style="background:${COLORS[i%COLORS.length]}"></span>
+                  ${name.replace(/-/g,' ')} (${val})
+                </span>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      `;
+
+      // Draw trend chart
+      setTimeout(() => {
+        drawTrendChart(trendData);
+        drawTypeChart(typeData);
+      }, 100);
+    }
+
+    function drawTrendChart(data) {
+      const canvas = document.getElementById('trendChart');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+      const w = rect.width, h = rect.height;
+      const pad = { top: 20, right: 15, bottom: 30, left: 30 };
+      const plotW = w - pad.left - pad.right;
+      const plotH = h - pad.top - pad.bottom;
+      const maxVal = Math.max(...data.map(d => d.count), 1);
+
+      ctx.clearRect(0, 0, w, h);
+
+      // Grid lines
+      ctx.strokeStyle = '#27272a';
+      ctx.lineWidth = 0.5;
+      for (let i = 0; i <= 4; i++) {
+        const y = pad.top + (plotH / 4) * i;
+        ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+        ctx.fillStyle = '#52525b'; ctx.font = '9px Inter, sans-serif'; ctx.textAlign = 'right';
+        ctx.fillText(Math.round(maxVal - (maxVal / 4) * i), pad.left - 6, y + 3);
+      }
+
+      if (data.length < 2) return;
+
+      // Labels
+      ctx.fillStyle = '#52525b'; ctx.font = '9px Inter, sans-serif'; ctx.textAlign = 'center';
+      data.forEach((d, i) => {
+        const x = pad.left + (plotW / (data.length - 1)) * i;
+        const label = new Date(d.month + '-01').toLocaleDateString('en-US', { month: 'short' });
+        ctx.fillText(label, x, h - 8);
+      });
+
+      // Gradient fill
+      const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + plotH);
+      grad.addColorStop(0, 'rgba(239,68,68,0.25)');
+      grad.addColorStop(1, 'rgba(239,68,68,0)');
+
+      const points = data.map((d, i) => ({
+        x: pad.left + (plotW / (data.length - 1)) * i,
+        y: pad.top + plotH - (d.count / maxVal) * plotH,
+      }));
+
+      // Fill area
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, pad.top + plotH);
+      points.forEach(p => ctx.lineTo(p.x, p.y));
+      ctx.lineTo(points[points.length - 1].x, pad.top + plotH);
+      ctx.closePath();
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      // Line
+      ctx.beginPath();
+      ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 2;
+      points.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+      ctx.stroke();
+
+      // Dots
+      points.forEach(p => {
+        ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        ctx.fillStyle = '#ef4444'; ctx.fill();
+        ctx.strokeStyle = '#0a0a0f'; ctx.lineWidth = 1.5; ctx.stroke();
+      });
+    }
+
+    function drawTypeChart(data) {
+      const canvas = document.getElementById('typeChart');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+      const w = rect.width, h = rect.height;
+      const cx = w / 2, cy = h * 0.42;
+      const outer = Math.min(w, h) * 0.38;
+      const inner = outer * 0.55;
+      const total = data.reduce((s, [, v]) => s + v, 0);
+
+      let angle = -Math.PI / 2;
+      data.forEach(([name, val], i) => {
+        const sliceAngle = (val / total) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, outer, angle, angle + sliceAngle);
+        ctx.arc(cx, cy, inner, angle + sliceAngle, angle, true);
+        ctx.closePath();
+        ctx.fillStyle = COLORS[i % COLORS.length];
+        ctx.fill();
+        angle += sliceAngle;
+      });
+
+      // Center text
+      ctx.fillStyle = '#e4e4e7'; ctx.font = 'bold 18px Inter, sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(total, cx, cy + 2);
+      ctx.fillStyle = '#52525b'; ctx.font = '9px Inter, sans-serif';
+      ctx.fillText('threats', cx, cy + 16);
+    }
+
+    function renderCoverage() {
+      const cov = DATA.stats.bheeshmaCoverage;
+      const signals = Object.entries(cov.signalTypes).sort((a, b) => b[1] - a[1]).slice(0, 8);
+      const maxCount = signals.length > 0 ? signals[0][1] : 1;
+
+      document.getElementById('coverage-card').innerHTML = `
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Bheeshma Signal Detection Coverage
+            <span class="coverage-badge">100% Detection Rate</span>
+          </div>
+          <div class="card-desc">Top signals detected across all known supply chain attacks</div>
+        </div>
+        <div class="card-body">
+          <div class="signal-bar-container">
+            ${signals.map(([name, count], i) => `
+              <div class="signal-bar-row">
+                <span class="signal-bar-label font-mono">${name.replace(/_/g, ' ')}</span>
+                <div class="signal-bar-track">
+                  <div class="signal-bar-fill" style="width:${(count/maxCount)*100}%;background:${i<3?'#ef4444':i<6?'#f97316':'#eab308'}"></div>
+                </div>
+                <span class="signal-bar-count font-mono">${count}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderFilters() {
+      const sevStats = DATA.stats.severity;
+      const typeStats = DATA.stats.typeDistribution;
+
+      document.getElementById('filters').innerHTML = `
+        <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+          <div class="search-box">
+            <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" placeholder="Search packages, threats, descriptions..." id="search-input" />
+          </div>
+        </div>
+        <div class="filter-row" id="sev-filters">
+          ${['all','critical','high','medium','low'].map(s => `
+            <button class="filter-btn ${filterSev===s?'active-sev':''}" data-sev="${s}">
+              ${s==='all'?'All':s.charAt(0).toUpperCase()+s.slice(1)}
+              ${s!=='all'?`<span class="filter-count">(${sevStats[s]||0})</span>`:''}
+            </button>
+          `).join('')}
+        </div>
+        <div class="filter-row" id="type-filters">
+          ${Object.entries(typeStats).map(([t, c]) => `
+            <button class="filter-btn ${filterType===t?'active-type':''}" data-type="${t}">
+              <span>${TYPE_ICONS[t]||''}</span>
+              ${t.replace(/-/g,' ')}
+              <span class="filter-count">(${c})</span>
+            </button>
+          `).join('')}
+        </div>
+      `;
+
+      document.getElementById('search-input').addEventListener('input', e => { searchQ = e.target.value; renderThreats(); });
+      document.querySelectorAll('[data-sev]').forEach(btn => btn.addEventListener('click', () => {
+        filterSev = btn.dataset.sev; renderFilters(); renderThreats();
+      }));
+      document.querySelectorAll('[data-type]').forEach(btn => btn.addEventListener('click', () => {
+        filterType = filterType === btn.dataset.type ? 'all' : btn.dataset.type; renderFilters(); renderThreats();
+      }));
+    }
+
+    function renderThreats() {
+      const threats = DATA.curated.filter(t => {
+        if (filterSev !== 'all' && t.severity !== filterSev) return false;
+        if (filterType !== 'all' && t.type !== filterType) return false;
+        if (searchQ) {
+          const q = searchQ.toLowerCase();
+          return t.package.toLowerCase().includes(q) || t.title.toLowerCase().includes(q) || t.description.toLowerCase().includes(q);
+        }
+        return true;
+      });
+
+      const grid = document.getElementById('threats-grid');
+      if (threats.length === 0) {
+        grid.innerHTML = '<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><p>No threats match your filters</p></div>';
+        return;
+      }
+
+      grid.innerHTML = threats.map(t => `
+        <div class="threat-card" onclick="this.classList.toggle('expanded')">
+          <div class="threat-header">
+            <div class="threat-pkg">
+              <span class="threat-icon">${TYPE_ICONS[t.type]||''}</span>
+              <span class="threat-pkg-name">${t.package}</span>
+              ${t.version?`<span class="threat-pkg-ver">@${t.version}</span>`:''}
+            </div>
+            <span class="severity-badge sev-${t.severity}">${t.severity.toUpperCase()}</span>
+          </div>
+          <div class="threat-title">${t.title}</div>
+          <div class="threat-desc">${t.description}</div>
+          <div class="signal-tags">
+            ${t.bheeshma_signals.slice(0, 4).map(s => `<span class="signal-tag">${s}</span>`).join('')}
+            ${t.bheeshma_signals.length > 4 ? `<span class="signal-tag" style="color:var(--dim);border-color:var(--border);">+${t.bheeshma_signals.length-4} more</span>` : ''}
+          </div>
+          <div class="threat-meta">
+            <span>${new Date(t.date).toLocaleDateString('en-US',{month:'short',year:'numeric'})} &middot; ${t.downloads}</span>
+            <span class="status-badge status-${t.status}">${t.status}</span>
+          </div>
+          <div class="threat-detail">
+            <div class="detail-label">Full Description</div>
+            <div class="detail-text">${t.description}</div>
+            <div class="detail-label" style="margin-top:0.5rem;">Bheeshma Signals (${t.bheeshma_signals.length})</div>
+            <div class="signal-tags">${t.bheeshma_signals.map(s => `<span class="signal-tag">${s}</span>`).join('')}</div>
+            ${t.cve?`<div class="cve-tag">${t.cve}</div>`:''}
+            ${t.references&&t.references.length?`
+              <div class="detail-label" style="margin-top:0.5rem;">References</div>
+              <div class="detail-refs">${t.references.map(r => `<a href="${r}" target="_blank" class="detail-ref">&#x1F517; ${r.length>70?r.slice(0,70)+'...':r}</a>`).join('')}</div>
+            `:''}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    load();
+
+    // Redraw charts on resize
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => { if (DATA) { renderCharts(); } }, 200);
+    });
+  </script>
+</body>
+</html>
+
