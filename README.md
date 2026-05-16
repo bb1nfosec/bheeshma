@@ -10,12 +10,13 @@
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D14.0.0-brightgreen.svg)](https://nodejs.org/)
 [![CI](https://github.com/bbinfosec/bheeshma/actions/workflows/ci.yml/badge.svg)](https://github.com/bbinfosec/bheeshma/actions/workflows/ci.yml)
 [![Tests](https://img.shields.io/badge/tests-41%2F41%20passing-success.svg)]()
+[![Wall of Shame](https://img.shields.io/badge/Wall%20of%20Shame-20%20threats-red.svg)](https://bbinfosec.github.io/bheeshma/)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-success.svg)]()
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
 *Catches supply-chain attacks that static analysis misses.*
 
-[Quick Start](#-30-second-quick-start) | [GitHub Actions](#-github-actions-integration) | [npm install Monitor](#-npm-install-monitor) | [CLI](#cli-usage) | [Configuration](#configuration)
+[Quick Start](#-30-second-quick-start) | [GitHub Actions](#-github-actions-integration) | [npm install Monitor](#-npm-install-monitor) | [Wall of Shame](#-wall-of-shame-dashboard) | [CLI](#cli-usage) | [Configuration](#configuration)
 
 </div>
 
@@ -323,6 +324,57 @@ Create `.bheeshmarc.json` in your project root (fully optional):
 ```
 
 Or use `bheeshma --config .bheeshmarc.json -- node app.js`.
+
+---
+
+## Wall of Shame Dashboard
+
+[![Visit Wall of Shame](https://img.shields.io/badge/Visit-Wall%20of%20Shame-red?style=for-the-badge)](https://bbinfosec.github.io/bheeshma/)
+
+The **bheeshma Wall of Shame** is a live threat intelligence dashboard that tracks every known npm supply chain attack and shows how bheeshma catches them.
+
+**Live at:** [bbinfosec.github.io/bheeshma](https://bbinfosec.github.io/bheeshma/)
+
+### What It Shows
+
+- **20+ curated supply chain threats** — from the axios compromise to Shai-Hulud to AI-themed phishing packages
+- **Live OSV feed** — real-time npm vulnerabilities from the Open Source Vulnerabilities database
+- **100% bheeshma coverage** — every tracked threat is caught by bheeshma signals at runtime
+- **Trend charts** — supply chain attack frequency over time (2024-2025)
+- **Attack type breakdown** — malware, typosquats, backdoors, credential theft, protest-ware, data exfiltration
+- **Signal detection bars** — which bheeshma signals fire most across all known attacks
+
+### Auto-Updates
+
+The dashboard refreshes **daily at 06:00 UTC** via GitHub Actions:
+
+1. `scripts/fetch-threats.js` fetches the latest npm vulnerabilities from the **OSV API**
+2. Merges with the curated local threat database
+3. Regenerates `dashboard/data/threats.json`
+4. Commits and pushes the updated data
+5. GitHub Pages deploys the updated dashboard automatically
+
+### Add Your Own Threats
+
+Edit `scripts/fetch-threats.js` and add entries to the `CURATED_THREATS` array. The format:
+
+```javascript
+{
+  id: 'T2025-021',
+  package: 'package-name',
+  version: '1.0.0',
+  title: 'Short descriptive title',
+  description: 'Full description of the attack',
+  severity: 'critical', // critical | high | medium | low
+  type: 'backdoor',   // malware | typosquat | backdoor | data-exfil | etc.
+  date: '2025-05-01',
+  status: 'removed',  // active | removed | patched | unpublished
+  downloads: '50K+',
+  bheeshma_signals: ['NETWORK_CONNECTION', 'SHELL_EXEC', 'DNS_QUERY'],
+  references: ['https://source-url'],
+  cve: 'CVE-YYYY-XXXXX' // optional
+}
+```
 
 ---
 
