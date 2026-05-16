@@ -100,15 +100,14 @@ npm install bheeshma --package-lock
 BHEESHMA cannot detect:
 - **Pre-hook activity**: Behaviors before `init()` is called
 - **Native addons**: C++ modules bypass JavaScript hooks
-- **Worker threads**: Currently not monitored (V2 feature)
 - **Time bombs**: Delayed execution after monitoring stops
+- **Compiled WebAssembly**: WASM modules bypass JavaScript hooks
 
 ### Not Vulnerability Fixes
 
 These are design limitations, not bugs:
 - First-party code is not attributed (by design)
 - Signals require node_modules structure
-- ESM support is partial (full support in V2)
 
 ## Disclosure Policy
 
@@ -143,4 +142,4 @@ For **security matters only**, use the private reporting channels above.
 
 ---
 
-**Last Updated**: 2026-01-18
+**Last Updated**: 2026-05-16

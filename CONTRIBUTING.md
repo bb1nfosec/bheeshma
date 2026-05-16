@@ -134,15 +134,23 @@ function hookFunction(fnName, signalType) {
 
 ```
 bheeshma/
-├── bin/          # CLI entry point
+├── bin/
+│   ├── bheeshma.js          # Main CLI
+│   ├── bheeshma-ci.js       # CI-optimized CLI
+│   └── bheeshma-install.js  # npm install monitor
 ├── src/
-│   ├── hooks/    # Runtime instrumentation
-│   ├── attribution/  # Package resolution
-│   ├── signals/  # Signal definitions
-│   ├── scoring/  # Trust scoring
-│   ├── output/   # Formatters
-│   └── index.js  # Main API
-└── test/         # Test harness
+│   ├── hooks/       # Runtime instrumentation (env, fs, net, http, dns, child_process)
+│   ├── attribution/ # Package resolution via stack traces
+│   ├── signals/     # Signal type definitions
+│   ├── scoring/     # Trust scoring engine
+│   ├── patterns/    # Behavioral pattern detection
+│   ├── obfuscation/ # Static code analysis
+│   ├── config/      # Configuration system
+│   ├── output/      # Formatters (CLI, JSON, HTML, SARIF)
+│   └── index.js     # Main API
+├── .github/actions/bheeshma/  # GitHub Action
+├── demos/           # Attack replay scripts
+└── test/            # Test harness (41 tests)
 ```
 
 ## Security Considerations
@@ -166,7 +174,7 @@ bheeshma/
 ## Testing Requirements
 
 All contributions must:
-- ✅ Pass existing test suite (17/17)
+- ✅ Pass existing test suite (41/41)
 - ✅ Include tests for new features
 - ✅ Maintain offline execution
 - ✅ Be deterministic (same input = same output)

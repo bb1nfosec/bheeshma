@@ -1,127 +1,229 @@
 <div align="center">
 
-# 🛡️ BHEESHMA
+# BHEESHMA
 
 **Runtime Dependency Behavior Monitor for Node.js**
+*The strace for npm packages.*
 
+[![npm version](https://img.shields.io/npm/v/bheeshma.svg)](https://www.npmjs.com/package/bheeshma)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D14.0.0-brightgreen.svg)](https://nodejs.org/)
 [![CI](https://github.com/bbinfosec/bheeshma/actions/workflows/ci.yml/badge.svg)](https://github.com/bbinfosec/bheeshma/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-22%2F22%20passing-success.svg)]()
+[![Tests](https://img.shields.io/badge/tests-41%2F41%20passing-success.svg)]()
+[![Zero Dependencies](https://img.shields.io/badge/dependencies-0-success.svg)]()
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-*Detect software supply-chain abuse at runtime by observing what third-party npm dependencies actually do.*
+*Catches supply-chain attacks that static analysis misses.*
 
-[Installation](#installation) • [Usage](#usage) • [CI/CD Enforcement](#policy-enforcement-mode) • [Examples](#example-output) • [Documentation](#documentation)
+[Quick Start](#-30-second-quick-start) | [GitHub Actions](#-github-actions-integration) | [npm install Monitor](#-npm-install-monitor) | [CLI](#cli-usage) | [Configuration](#configuration)
 
 </div>
 
 ---
 
-Modern applications depend on hundreds of third-party npm packages. While static analysis and CVE scanning help, they cannot detect:
+## Why BHEESHMA?
 
-- **Zero-day malicious packages** not yet in vulnerability databases
-- **Compromised legitimate packages** (e.g., event-stream, ua-parser-js incidents)
-- **Dependency confusion attacks** that execute malicious code at install or runtime
-- **Behavioral abuse** that doesn't match known CVE signatures
-- **DNS tunneling** that exfiltrates data before any HTTP connection opens
-- **Obfuscated payloads** hidden in encoded strings
+In 2025-2026, the npm ecosystem was hit by a wave of supply-chain attacks:
 
-**Traditional tools tell you what dependencies _are_. BHEESHMA tells you what dependencies _do_.**
+| Attack | When | Impact |
+|--------|------|--------|
+| **Shai-Hulud Worm** | Sept 2025 | 200+ packages, automated CI/CD hijacking |
+| **axios compromise** | Early 2026 | Stolen npm credentials, 10K+ systems, RAT malware |
+| **Mini Shai-Hulud** | May 2026 | 84 TanStack packages compromised |
+| **CanisterWorm** | 2026 | Self-propagating, exfiltration + persistence |
 
----
+**Every major tool — Socket.dev, Snyk, Dependabot, npm audit — is pre-install static analysis.** They scan code *before* it runs. They cannot see what a package *actually does at runtime*.
 
-## What's New in v3.0
+BHEESHMA is different. It **monitors runtime behavior** — what your dependencies actually do when they execute. It catches:
 
-| Feature | Description |
-|---------|-------------|
-| **🚦 Policy Enforcement** | `--enforce` flag for CI/CD pipelines — exit(1) on CRITICAL packages |
-| **🌐 DNS Monitoring** | Detects DNS tunneling, high-entropy subdomains, known exfil services |
-| **🔍 Obfuscation Detection** | Static analysis: eval(), hex escapes, Base64 chains, Function() |
-| **📦 ESM Support** | `--loader` API catches pure ESM packages (got, node-fetch v3+) |
-| **🔧 Worker Threads** | Signal collection from `worker_threads` via bootstrap injection |
-| **🎯 Per-Package Thresholds** | Custom trust score thresholds per package |
-| **📊 HTML Reports** | Self-contained HTML with dark theme, filtering, JSON export |
-| **🔔 Webhook Alerts** | POST critical findings to Slack, Discord, ntfy.sh |
-| **🧹 Signal Deduplication** | Collapses 300 identical HTTP calls into 1 readable entry |
-| **📍 Accurate Attribution** | Outermost node_modules resolution (no more transitive mislabels) |
+- Malicious postinstall scripts stealing CI secrets
+- Packages making outbound connections to exfiltration endpoints
+- Obfuscated code executing at runtime
+- Credential theft, crypto miners, data exfiltration
+- Typosquat packages impersonating popular libraries
+- DNS tunneling that bypasses HTTP-level monitoring
+
+**Zero dependencies. Zero configuration. Zero telemetry.**
 
 ---
 
-## What BHEESHMA Monitors
+## 30-Second Quick Start
 
-| Behavior | Risk | What It Detects |
-|----------|------|------------------|
-| **Environment Variable Access** | Medium | Credential theft, API key exfiltration |
-| **File System Reads** | Low-Medium | Reconnaissance, credential file access |
-| **File System Writes** | High | Persistence mechanisms, data exfiltration |
-| **Network Connections** | Medium-High | Data exfiltration, C&C communication |
-| **HTTP/HTTPS Requests** | Medium-High | Data exfiltration, suspicious service communication |
-| **Shell Execution** | Critical | Arbitrary code execution, system compromise |
-| **DNS Queries** | Medium-High | DNS tunneling, encoded subdomain exfiltration |
-| **Obfuscated Code** | Critical | Hidden payloads, eval/Function constructors |
+### GitHub Actions (recommended)
 
-### Trust Scoring
+Add to your CI pipeline — one YAML line:
 
-BHEESHMA calculates a **deterministic trust score** [0-100] for each package:
-
-- **80-100 (LOW risk)**: Minimal or benign behavior
-- **60-79 (MEDIUM risk)**: Moderate activity, review recommended
-- **30-59 (HIGH risk)**: Elevated activity, investigation required
-- **0-29 (CRITICAL risk)**: Highly suspicious, immediate action needed
-
----
-
-## Installation
-
-```bash
-npm install -g bheeshma
+```yaml
+# .github/workflows/ci.yml
+- uses: bb1nfosec/bheeshma/.github/actions/bheeshma@main
+  with:
+    command: 'npm test'
+    fail-level: 'critical'
 ```
 
-Or use directly with `npx`:
+Every PR will now show **runtime behavior annotations** from bheeshma directly in the GitHub diff view.
+
+### npm install Monitor
+
+Watch what packages do during installation:
 
 ```bash
-npx bheeshma -- node your-app.js
+npx bheeshma install
 ```
-
----
-
-## Usage
 
 ### Basic Monitoring
 
 ```bash
-bheeshma -- node app.js
+npx bheeshma -- node app.js
 ```
 
-### Policy Enforcement Mode (CI/CD)
+---
+
+## GitHub Actions Integration
+
+BHEESHMA outputs **SARIF v2.1.0** — the standard format for GitHub Code Scanning. Findings appear as inline annotations on every PR.
+
+### Basic Setup
+
+```yaml
+name: CI
+on: [push, pull_request]
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: npm ci
+
+      - uses: bb1nfosec/bheeshma/.github/actions/bheeshma@main
+        with:
+          command: 'npm test'
+          fail-level: 'critical'    # fail on CRITICAL (default)
+          upload-sarif: 'true'      # upload to Code Scanning
+```
+
+### All Options
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `command` | _(required)_ | Command to run under monitoring |
+| `fail-level` | `critical` | Minimum risk level to fail build (`critical`, `high`, `medium`, `low`) |
+| `config` | `''` | Path to `.bheeshmarc.json` |
+| `sarif-output` | `bheeshma-results.sarif` | SARIF output file path |
+| `skip-low` | `true` | Skip LOW-risk signals in SARIF (reduces noise) |
+| `upload-sarif` | `true` | Upload SARIF to GitHub Code Scanning |
+
+### Advanced: Multiple Commands
+
+```yaml
+- name: Monitor npm install
+  uses: bb1nfosec/bheeshma/.github/actions/bheeshma@main
+  with:
+    command: 'npm ci'
+    fail-level: 'high'
+
+- name: Monitor tests
+  uses: bb1nfosec/bheeshma/.github/actions/bheeshma@main
+  with:
+    command: 'npm test'
+    fail-level: 'critical'
+    sarif-output: 'bheeshma-test-results.sarif'
+```
+
+---
+
+## npm install Monitor
+
+The **#1 attack vector** in 2025-2026 is malicious packages that steal CI secrets during `npm install`. BHEESHMA watches every package's install-time behavior:
 
 ```bash
-# Exit with code 1 if any package exceeds risk threshold
+# Monitor npm install
+npx bheeshma install
+
+# Monitor npm ci (lockfile-strict)
+npx bheeshma install ci
+
+# Monitor installing a specific package
+npx bheeshma install -- --save-dev some-package
+
+# Output SARIF for CI
+npx bheeshma install -- --sarif --output install-results.sarif
+```
+
+What it catches:
+- Postinstall scripts running shell commands
+- Packages reading `.npmrc`, `.env`, or credential files
+- Outbound network connections during install
+- File writes outside `node_modules/`
+
+---
+
+## CLI Usage
+
+### Monitor any command
+
+```bash
+# Monitor a Node.js app
+bheeshma -- node app.js
+
+# Monitor test suite
+bheeshma -- npm test
+
+# Monitor a specific script
+bheeshma -- node scripts/build.js
+```
+
+### Output formats
+
+```bash
+# CLI (default, color-coded terminal output)
+bheeshma -- node app.js
+
+# JSON (machine-readable, for pipelines)
+bheeshma --format json --output report.json -- npm test
+
+# HTML (self-contained dark-themed report)
+bheeshma --format html --output report.html -- node app.js
+
+# SARIF (GitHub Code Scanning integration)
+bheeshma --format sarif --output results.sarif -- npm test
+```
+
+### Enforcement mode
+
+```bash
+# Exit code 1 if any package is CRITICAL
 bheeshma --enforce -- npm test
 
-# JSON output + enforcement for CI pipelines
+# Fail on HIGH or above
+bheeshma-ci --fail-level high -- npm test
+
+# JSON output + enforcement
 bheeshma --enforce --format json --output report.json -- npm test
 ```
 
-### HTML Reports
+### CI-optimized mode
 
 ```bash
-# Generate a self-contained HTML report
-bheeshma --format html --output report.html -- node app.js
+# bheeshma-ci is a thin wrapper optimized for CI pipelines
+# - No ANSI colors, no HTML
+# - SARIF output by default
+# - Exit codes for policy enforcement
+# - GitHub Actions ::error annotations
+
+bheeshma-ci -- npm test
+bheeshma-ci --fail-level high --output results.sarif -- npm test
 ```
 
-### Webhook Alerts
+### Subcommands
 
 ```bash
-# Alert to Slack/Discord on critical findings
-bheeshma --alert-webhook https://hooks.slack.com/services/XXX -- node app.js
-```
-
-### Custom Configuration
-
-```bash
-bheeshma --config .bheeshmarc.json -- node app.js
+bheeshma install            # Monitor npm install
+bheeshma ci -- <command>    # CI-optimized mode
+bheeshma -- <command>       # Standard monitoring
 ```
 
 ### Programmatic API
@@ -132,8 +234,13 @@ const bheeshma = require('bheeshma');
 // Initialize with default settings
 bheeshma.init();
 
-// Your application code
+// Your application code runs here
 require('./your-app');
+
+// Generate report in any format
+console.log(bheeshma.generateReport('cli'));
+console.log(bheeshma.generateReport('json'));
+console.log(bheeshma.generateReport('sarif'));
 
 // Check enforcement policy
 const result = bheeshma.enforcePolicy();
@@ -141,237 +248,144 @@ if (!result.passed) {
   console.error('Policy violation:', result.message);
   process.exit(1);
 }
-
-// Generate report
-console.log(bheeshma.generateReport('cli'));
 ```
 
 ---
 
-## Policy Enforcement Mode
+## What BHEESHMA Monitors
 
-The `--enforce` flag makes BHEESHMA immediately useful in CI pipelines:
+| Behavior | Signal Type | Risk | What It Detects |
+|----------|-------------|------|------------------|
+| Environment variable access | `ENV_ACCESS` | Medium | Credential theft, API key exfiltration |
+| File system reads | `FS_READ` | Low | Reconnaissance, credential file access |
+| File system writes | `FS_WRITE` | High | Persistence, backdoor installation |
+| Raw TCP connections | `NET_CONNECT` | High | Reverse shells, C2 communication |
+| HTTP requests | `HTTP_REQUEST` | High | Unencrypted data exfiltration |
+| HTTPS requests | `HTTPS_REQUEST` | Medium-High | Encrypted data exfiltration |
+| DNS queries | `DNS_QUERY` | Medium-High | DNS tunneling, encoded subdomain exfil |
+| Shell execution | `SHELL_EXEC` | Critical | Arbitrary code execution |
+| Obfuscated code | `OBFUSCATION_DETECTED` | Critical | Hidden payloads, eval/Function |
+| Blacklisted packages | `BLACKLISTED_PACKAGE` | Critical | Known malicious packages |
 
-```yaml
-# GitHub Actions example
-- name: Security Check
-  run: npx bheeshma --enforce --format json --output report.json -- npm test
-```
+### Pattern Detection
 
-When enabled, BHEESHMA will:
-1. Run your command normally
-2. Generate a report with trust scores
-3. Check each package against thresholds (default CRITICAL: < 30)
-4. Exit with code 1 if any package is CRITICAL, printing the offender
-5. Optionally send a webhook alert
+BHEESHMA correlates signals to detect complex attack patterns:
 
-### Per-Package Thresholds
+| Pattern | Signals | Severity |
+|---------|---------|----------|
+| **Crypto mining** | `WALLET_ADDRESS` + `MINING_POOL` env vars | CRITICAL |
+| **Data exfiltration** | Credential file read + outbound HTTP | CRITICAL |
+| **Backdoor** | Shell exec + reverse connection | CRITICAL |
+| **Credential theft** | `.env`/`.npmrc` read (context-aware) | HIGH/LOW* |
+| **Typosquat** | Package name similar to popular package | HIGH |
 
-Tune known-noisy packages without fully whitelisting them:
+*Context-aware: dotenv reading `.env` = LOW (expected). A random package reading `.env` = HIGH (suspicious).
 
-```json
-{
-  "packageThresholds": {
-    "axios": 40,
-    "express": 50
-  }
-}
-```
+### Trust Scoring
 
-### Whitelist Suppression
+Each package gets a **deterministic trust score [0-100]**:
 
-Whitelisted packages are suppressed at the hook layer — signals are never even recorded:
-
-```json
-{
-  "whitelist": ["express@*", "@types/*"]
-}
-```
+- **80-100 (LOW risk)**: Minimal or benign behavior
+- **60-79 (MEDIUM risk)**: Moderate activity, review recommended
+- **30-59 (HIGH risk)**: Elevated activity, investigation required
+- **0-29 (CRITICAL risk)**: Highly suspicious, immediate action needed
 
 ---
 
 ## Configuration
 
-Create `.bheeshmarc.json` in your project root:
+Create `.bheeshmarc.json` in your project root (fully optional):
 
 ```json
 {
-  "hooks": {
-    "env": true,
-    "fs": true,
-    "net": true,
-    "childProcess": true,
-    "http": true,
-    "dns": true
-  },
-  "riskWeights": {
-    "SHELL_EXEC": 20,
-    "FS_WRITE": 10,
-    "HTTP_REQUEST": 10,
-    "HTTPS_REQUEST": 8,
-    "NET_CONNECT": 8,
-    "DNS_QUERY": 4,
-    "ENV_ACCESS": 5,
-    "FS_READ": 3,
-    "OBFUSCATION_DETECTED": 25
-  },
   "thresholds": {
     "critical": 30,
     "high": 60,
     "medium": 80
   },
   "packageThresholds": {
-    "axios": 40
+    "axios": 40,
+    "express": 50
   },
-  "whitelist": ["express@*"],
-  "blacklist": [],
+  "whitelist": ["express@*", "@types/*"],
+  "blacklist": ["malicious-package"],
   "patterns": {
     "enabled": true,
     "detectCryptoMiners": true,
     "detectDataExfiltration": true,
-    "detectBackdoors": true,
-    "detectObfuscation": true
+    "detectBackdoors": true
   },
   "performance": {
-    "track": false,
     "maxSignals": 10000,
     "deduplicateSignals": true
-  },
-  "output": {
-    "formats": ["cli"],
-    "verbosity": "normal",
-    "includeStackTraces": true
-  },
-  "enforce": false,
-  "alertWebhook": null
+  }
 }
 ```
 
----
-
-## DNS Monitoring
-
-BHEESHMA wraps `dns.lookup`, `dns.resolve`, `dns.resolve4`, `dns.resolve6`, and `dns.resolveTxt` to detect:
-
-- **Abnormally long subdomains** (>50 chars, indicating encoded data)
-- **High-entropy subdomains** (Shannon entropy > 4.0 bits)
-- **Base64/hex encoded subdomains**
-- **Known exfiltration services** (dnshook.site, webhook.site, ngrok.io)
-
-DNS tunneling — data exfiltration via encoded subdomains like `c2-payload.evil.io` — goes completely undetected by HTTP-level monitoring. BHEESHMA catches it at the resolver.
-
----
-
-## Obfuscation Detection
-
-At module load time, BHEESHMA performs static analysis on each package's entry point:
-
-| Pattern | Severity | Description |
-|---------|----------|-------------|
-| `eval()` | HIGH | Dynamic code execution |
-| `Function()` | HIGH | Constructor-based code execution |
-| `Buffer.from().toString()` | MEDIUM | Base64 payload decoding |
-| Long hex literals (>100 chars) | HIGH | Hex-encoded payloads |
-| `\x` escape density > 10% | HIGH | Heavily obfuscated source |
-| `String.fromCharCode` chains | HIGH | String obfuscation |
-| `atob()` | MEDIUM | Base64 decoding |
-
----
-
-## Example Output
-
-### CLI Format
-
-```
-======================================================================
-  BHEESHMA Runtime Dependency Behavior Report
-======================================================================
-
-Summary:
-  Total Packages Monitored: 3
-  Total Signals Captured: 24
-
-  Risk Distribution:
-    CRITICAL: 1
-    HIGH: 1
-    LOW: 1
-
-📦 suspicious-package@1.0.0
-   Trust Score: 15/100 [CRITICAL]
-
-   Observed Behaviors:
-     ⚡  SHELL EXEC: 1 occurrence
-     📝  FS WRITE: 2 occurrence
-     🔐  ENV ACCESS: 5 occurrence (3 unique)
-     🌐  DNS QUERY: 1 occurrence
-```
-
-### JSON Format
-
-```json
-{
-  "version": "1.0",
-  "summary": {
-    "totalPackages": 2,
-    "riskDistribution": { "critical": 1, "high": 0, "medium": 0, "low": 1 }
-  },
-  "packages": [...]
-}
-```
+Or use `bheeshma --config .bheeshmarc.json -- node app.js`.
 
 ---
 
 ## Security Guarantees
 
-- ✅ **Zero telemetry** — No outbound communication (except webhook alerts if configured)
-- ✅ **Local-only** — All processing happens on your machine
-- ✅ **No external dependencies** — Pure Node.js, no npm packages required
-- ✅ **Non-invasive hooks** — Observes behavior without modifying it
-- ✅ **Fail-safe** — Hook errors never break your application
-- ✅ **Data minimization** — Metadata only, never captures secrets or content
+- **Zero telemetry** — No outbound communication (except webhook alerts if configured)
+- **Local-only** — All processing happens on your machine
+- **Zero dependencies** — Pure Node.js, no npm packages required
+- **Metadata only** — Never captures secrets, file contents, or request bodies
+- **Non-invasive** — Observes behavior without modifying it
+- **Fail-safe** — Hook errors never break your application
+- **Immutable signals** — All signals are frozen after creation
+
+---
+
+## Installation
+
+```bash
+# Global install
+npm install -g bheeshma
+
+# Or use with npx (no install needed)
+npx bheeshma -- node app.js
+```
+
+**Requirements:** Node.js >= 14.0.0. No other dependencies.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│              CLI / Programmatic API              │
-│         --enforce, --alert-webhook, --html      │
-└─────────────────────────────────────────────────┘
-                        │
-┌─────────────────────────────────────────────────┐
-│           Output Formatters                     │
-│        (CLI, JSON, HTML)                        │
-└─────────────────────────────────────────────────┘
-                        │
-┌─────────────────────────────────────────────────┐
-│     Policy Engine + Trust Scoring               │
-│   (Enforcement, Thresholds, Dedup, Whitelist)   │
-└─────────────────────────────────────────────────┘
-                        │
-┌─────────────────────────────────────────────────┐
-│           Signal Normalization Layer              │
-│         (Immutable, Type-Safe)                  │
-└─────────────────────────────────────────────────┘
-                        │
-┌─────────────────────────────────────────────────┐
-│          Attribution Engine                       │
-│   (Outermost node_modules, ESM loader)          │
-└─────────────────────────────────────────────────┘
-                        │
-┌─────────────────────────────────────────────────┐
-│           Runtime Hooks                          │
-│   (env, fs, net, http, dns, child_process)     │
-├─────────────────────────────────────────────────┤
-│        Pattern + Obfuscation Detection           │
-│     (Crypto, Exfil, Backdoors, Static Analysis) │
-└─────────────────────────────────────────────────┘
-                        │
-┌─────────────────────────────────────────────────┐
-│   Worker Thread Support (signal relay)           │
-│   ESM Loader (import interception)              │
-└─────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│                    CLI Layer                         │
+│   bheeshma  │  bheeshma-ci  │  bheeshma-install     │
+└──────────────────┬───────────────────────────────────┘
+                   │
+┌──────────────────▼───────────────────────────────────┐
+│              Output Formatters                        │
+│   CLI  │  JSON  │  HTML  │  SARIF v2.1.0            │
+└──────────────────┬───────────────────────────────────┘
+                   │
+┌──────────────────▼───────────────────────────────────┐
+│     Policy Engine + Trust Scoring                     │
+│   Enforcement │ Thresholds │ Dedup │ Blacklist        │
+└──────────────────┬───────────────────────────────────┘
+                   │
+┌──────────────────▼───────────────────────────────────┐
+│        Pattern + Obfuscation Detection                 │
+│   Crypto │ Exfil │ Backdoors │ Typosquat │ Static    │
+└──────────────────┬───────────────────────────────────┘
+                   │
+┌──────────────────▼───────────────────────────────────┐
+│          Attribution Engine                            │
+│   Stack trace → outermost node_modules resolution    │
+└──────────────────┬───────────────────────────────────┘
+                   │
+┌──────────────────▼───────────────────────────────────┐
+│            Runtime Hooks (6 types)                    │
+│   env │ fs │ net │ http │ dns │ child_process         │
+├──────────────────────────────────────────────────────┤
+│   Worker Thread Support  │  ESM Loader                │
+└──────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -379,16 +393,22 @@ Summary:
 ## Testing
 
 ```bash
-npm test
+npm test        # 41/41 tests, no network required
 ```
 
-All tests run **without network access** and produce **deterministic results**.
+All tests run **offline** with **deterministic results**.
 
 ---
 
 ## Contributing
 
-Contributions welcome! See `CONTRIBUTING.md` for guidelines.
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+**We especially want:**
+- Real-world attack replay scripts (like our [demos/](demos/))
+- False positive reports with reproduction steps
+- New hook types (e.g., `crypto`, `fs.watch`)
+- Performance optimizations for large codebases
 
 ---
 
@@ -400,6 +420,6 @@ Contributions welcome! See `CONTRIBUTING.md` for guidelines.
 
 ## Credits
 
-Built with discipline by security engineers who believe AI-assisted coding can produce production-grade software when guided by strong engineering principles.
+Built by security engineers who believe the npm ecosystem deserves a runtime monitoring tool that anyone can use, understand, and trust.
 
 **BHEESHMA**: Trust, but verify. At runtime.
