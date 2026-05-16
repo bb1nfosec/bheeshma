@@ -17,22 +17,17 @@ const { SignalType } = require('../signals/signalTypes');
 /**
  * Risk weights for different signal types
  * Higher weight = greater risk deduction
- * 
- * Rationale:
- * - SHELL_EXEC: Highest risk (arbitrary code execution)
- * - FS_WRITE: High risk (data exfiltration, persistence)
- * - NET_CONNECT: Medium-high risk (data exfiltration)
- * - ENV_ACCESS: Medium risk (credential theft)
- * - FS_READ: Lower risk (reconnaissance)
- * 
- * These weights are intentionally conservative and can be tuned.
  */
 const RISK_WEIGHTS = Object.freeze({
     [SignalType.SHELL_EXEC]: 20,
     [SignalType.FS_WRITE]: 10,
     [SignalType.NET_CONNECT]: 8,
     [SignalType.ENV_ACCESS]: 5,
-    [SignalType.FS_READ]: 3
+    [SignalType.FS_READ]: 3,
+    [SignalType.HTTP_REQUEST]: 10,
+    [SignalType.HTTPS_REQUEST]: 8,
+    [SignalType.DNS_QUERY]: 4,
+    [SignalType.OBFUSCATION_DETECTED]: 25
 });
 
 /**
@@ -43,17 +38,11 @@ const RISK_WEIGHTS = Object.freeze({
  * 2. For each signal attributed to the package, deduct risk weight
  * 3. Floor at 0 (no negative scores)
  * 
- * Security:
- * - Pure function: No side effects
- * - Deterministic: Same input always produces same output
- * - Auditable: All logic is transparent
- * 
  * @param {Array<object>} signals - Array of signals for this package
  * @returns {number} Trust score [0-100]
  */
 function calculateTrustScore(signals) {
     if (!Array.isArray(signals) || signals.length === 0) {
-        // No signals = full trust (package didn't do anything observable)
         return 100;
     }
 
@@ -63,7 +52,6 @@ function calculateTrustScore(signals) {
         const weight = RISK_WEIGHTS[signal.type] || 0;
         score -= weight;
 
-        // Floor at 0
         if (score < 0) {
             score = 0;
             break;
@@ -74,22 +62,116 @@ function calculateTrustScore(signals) {
 }
 
 /**
+ * Deduplicate signals to collapse identical repeated behaviors.
+ * 
+ * Key: ${pkg}:${type}:${destination}
+ * For each unique key, keeps count, firstSeen, lastSeen, and one sample signal.
+ * This makes reports readable — a package that makes 300 identical HTTP requests
+ * to the same host shows as 1 entry with count=300, not 300 noisy rows.
+ * 
+ * @param {Array<object>} signals - Raw signals array
+ * @returns {Array<object>} Deduplicated signals
+ */
+function deduplicateSignals(signals) {
+    const dedupMap = new Map();
+
+    for (const signal of signals) {
+        // Build a dedup key based on signal type + destination
+        const key = buildDedupKey(signal);
+
+        if (dedupMap.has(key)) {
+            const entry = dedupMap.get(key);
+            entry.count++;
+            entry.lastSeen = signal.timestamp;
+            // Keep the signal with the most metadata
+            if (Object.keys(signal.metadata).length > Object.keys(entry.sample.metadata).length) {
+                entry.sample = signal;
+            }
+        } else {
+            dedupMap.set(key, {
+                count: 1,
+                firstSeen: signal.timestamp,
+                lastSeen: signal.timestamp,
+                sample: signal
+            });
+        }
+    }
+
+    // Reconstruct signal array with dedup metadata
+    const result = [];
+    for (const [, entry] of dedupMap) {
+        const signal = { ...entry.sample };
+        signal._dedup = {
+            count: entry.count,
+            firstSeen: entry.firstSeen,
+            lastSeen: entry.lastSeen
+        };
+        result.push(Object.freeze(signal));
+    }
+
+    return result;
+}
+
+/**
+ * Build a deduplication key for a signal
+ * 
+ * @param {object} signal - Signal object
+ * @returns {string} Dedup key
+ */
+function buildDedupKey(signal) {
+    const pkg = signal.package || 'unknown';
+    const type = signal.type;
+    let destination = '';
+
+    switch (signal.type) {
+        case SignalType.ENV_ACCESS:
+            destination = signal.metadata.variable || '';
+            break;
+        case SignalType.FS_READ:
+        case SignalType.FS_WRITE:
+            destination = signal.metadata.path || '';
+            break;
+        case SignalType.SHELL_EXEC:
+            // Normalize command to reduce noise from dynamic args
+            destination = (signal.metadata.command || '').split(/\s+/).slice(0, 3).join(' ');
+            break;
+        case SignalType.NET_CONNECT:
+            destination = `${signal.metadata.host}:${signal.metadata.port}`;
+            break;
+        case SignalType.HTTP_REQUEST:
+        case SignalType.HTTPS_REQUEST:
+            // Key on host + method to group repeated requests to same endpoint
+            destination = `${signal.metadata.host}:${signal.metadata.method}`;
+            break;
+        case SignalType.DNS_QUERY:
+            destination = signal.metadata.hostname || '';
+            break;
+        case SignalType.OBFUSCATION_DETECTED:
+            destination = JSON.stringify(signal.metadata.indicators || []);
+            break;
+        default:
+            destination = JSON.stringify(signal.metadata || {});
+    }
+
+    return `${pkg}:${type}:${destination}`;
+}
+
+/**
  * Calculate trust scores for all packages from signal collection
  * 
- * Groups signals by package and calculates individual scores.
+ * Groups signals by package, deduplicates them, then calculates scores.
  * 
  * @param {Array<object>} allSignals - All captured signals
- * @returns {Map<string, object>} Map of packageName -> { score, signals, stats }
+ * @param {object} options - { deduplicate: boolean, packageThresholds: object, configThresholds: object }
+ * @returns {Map<string, object>} Map of packageName -> { score, signals, stats, riskLevel }
  */
-function calculateAllScores(allSignals) {
+function calculateAllScores(allSignals, options = {}) {
+    const { deduplicate = true, packageThresholds = {}, configThresholds = {} } = options;
     const packageMap = new Map();
 
     // Group signals by package
     for (const signal of allSignals) {
-        // Skip signals from first-party code
-        if (!signal.package) {
-            continue;
-        }
+        if (!signal.package) continue;
 
         const key = `${signal.package}@${signal.version}`;
 
@@ -104,20 +186,33 @@ function calculateAllScores(allSignals) {
 
         const packageData = packageMap.get(key);
         packageData.signals.push(signal);
-
-        // Update statistics
         updateStats(packageData.stats, signal);
     }
 
-    // Calculate scores for each package
+    // Deduplicate signals per package
     const scores = new Map();
     for (const [key, data] of packageMap.entries()) {
+        const effectiveSignals = deduplicate ? deduplicateSignals(data.signals) : data.signals;
+        let score = calculateTrustScore(effectiveSignals);
+
+        // Apply per-package threshold override
+        const customThreshold = packageThresholds[data.name];
+        if (customThreshold !== undefined && typeof customThreshold === 'number') {
+            // If the score is below the custom threshold, override risk level
+            // The score stays the same, but enforcement uses the custom threshold
+        }
+
+        const riskLevel = getRiskLevel(score, customThreshold);
+
         scores.set(key, {
             name: data.name,
             version: data.version,
-            score: calculateTrustScore(data.signals),
+            score,
+            riskLevel,
             signalCount: data.signals.length,
-            stats: data.stats
+            uniqueSignalCount: effectiveSignals.length,
+            stats: data.stats,
+            effectiveSignals
         });
     }
 
@@ -126,8 +221,6 @@ function calculateAllScores(allSignals) {
 
 /**
  * Initialize statistics object for a package
- * 
- * @returns {object} Stats object
  */
 function initializeStats() {
     return {
@@ -135,16 +228,16 @@ function initializeStats() {
         [SignalType.FS_READ]: 0,
         [SignalType.FS_WRITE]: 0,
         [SignalType.SHELL_EXEC]: 0,
-        [SignalType.NET_CONNECT]: 0
+        [SignalType.NET_CONNECT]: 0,
+        [SignalType.HTTP_REQUEST]: 0,
+        [SignalType.HTTPS_REQUEST]: 0,
+        [SignalType.DNS_QUERY]: 0,
+        [SignalType.OBFUSCATION_DETECTED]: 0
     };
 }
 
 /**
  * Update statistics with a new signal
- * 
- * @param {object} stats - Statistics object
- * @param {object} signal - Signal to count
- * @returns {void}
  */
 function updateStats(stats, signal) {
     if (stats[signal.type] !== undefined) {
@@ -153,21 +246,51 @@ function updateStats(stats, signal) {
 }
 
 /**
- * Get risk level category based on trust score
+ * Get risk level category based on trust score.
+ * Supports optional per-package threshold override.
  * 
  * @param {number} score - Trust score [0-100]
+ * @param {number} customThreshold - Optional per-package threshold override
  * @returns {string} Risk level: 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'
  */
-function getRiskLevel(score) {
-    if (score >= 80) return 'LOW';
-    if (score >= 60) return 'MEDIUM';
-    if (score >= 30) return 'HIGH';
-    return 'CRITICAL';
+function getRiskLevel(score, customThreshold) {
+    const critical = customThreshold !== undefined ? customThreshold : 30;
+    const high = customThreshold !== undefined ? Math.min(critical + 30, 100) : 60;
+    const medium = customThreshold !== undefined ? Math.min(high + 20, 100) : 80;
+
+    if (score < critical) return 'CRITICAL';
+    if (score < high) return 'HIGH';
+    if (score < medium) return 'MEDIUM';
+    return 'LOW';
+}
+
+/**
+ * Check if any package has CRITICAL risk level (for enforcement mode)
+ * 
+ * @param {Map} scores - Trust scores map
+ * @param {object} config - Configuration with thresholds
+ * @returns {object|null} { package, score, riskLevel } or null if all pass
+ */
+function findCriticalPackages(scores, config = {}) {
+    const critical = [];
+    for (const [, data] of scores) {
+        if (data.riskLevel === 'CRITICAL') {
+            critical.push({
+                name: data.name,
+                version: data.version,
+                score: data.score,
+                riskLevel: data.riskLevel
+            });
+        }
+    }
+    return critical;
 }
 
 module.exports = {
     calculateTrustScore,
     calculateAllScores,
     getRiskLevel,
+    findCriticalPackages,
+    deduplicateSignals,
     RISK_WEIGHTS
 };

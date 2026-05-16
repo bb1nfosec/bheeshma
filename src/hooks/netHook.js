@@ -17,7 +17,7 @@ const net = require('net');
 const http = require('http');
 const https = require('https');
 const { createSignal, SignalType } = require('../signals/signalTypes');
-const { resolveCurrentStack } = require('../attribution/resolver');
+const { resolveCurrentStack, isWhitelisted } = require('../attribution/resolver');
 
 /**
  * Global signal collector
@@ -34,31 +34,23 @@ const originalFunctions = {
 };
 
 let isHookInstalled = false;
+let hookConfig = null;
 
 /**
  * Install network hooks
  * 
- * Hooks:
- * - net.connect (low-level TCP/socket connections)
- * - http.request (HTTP requests)
- * - https.request (HTTPS requests)
- * 
- * Security:
- * - Non-blocking: Doesn't delay actual connection
- * - No body inspection: Never captures request/response data
- * - No header inspection: Prevents capturing Authorization headers
- * - Preserves all original behavior and event emitters
- * 
  * @param {Array} collector - Shared signal collector
+ * @param {object} config - Bheeshma configuration
  * @returns {boolean} True if installed successfully
  */
-function install(collector) {
+function install(collector, config) {
     try {
         if (isHookInstalled) {
             return true;
         }
 
         signalCollector = collector;
+        hookConfig = config;
 
         // Hook net.connect
         hookNetConnect();

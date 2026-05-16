@@ -1,7 +1,7 @@
 {
   "name": "bheeshma",
-  "version": "2.0.0",
-  "description": "Runtime dependency behavior monitor for Node.js - detects supply-chain attacks with behavioral analysis, pattern detection, and HTTP monitoring",
+  "version": "3.0.0",
+  "description": "Runtime dependency behavior monitor for Node.js - detects supply-chain attacks with behavioral analysis, pattern detection, DNS monitoring, obfuscation detection, CI enforcement, and HTML reporting",
   "main": "src/index.js",
   "bin": {
     "bheeshma": "bin/bheeshma.js"
@@ -19,14 +19,21 @@
     "malware-detection",
     "pattern-detection",
     "http-monitoring",
+    "dns-monitoring",
     "crypto-miner-detection",
     "data-exfiltration",
-    "backdoor-detection"
+    "backdoor-detection",
+    "obfuscation-detection",
+    "dns-tunneling",
+    "ci-cd",
+    "policy-enforcement",
+    "esm",
+    "worker-threads"
   ],
   "author": "Security Engineering Team",
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=12.0.0"
+    "node": ">=14.0.0"
   },
   "repository": {
     "type": "git",

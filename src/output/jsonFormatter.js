@@ -140,7 +140,10 @@ function sanitizeMetadata(metadata) {
     const sanitized = {};
 
     // Copy allowed fields only
-    const allowedFields = ['variable', 'path', 'operation', 'host', 'port', 'protocol', 'command'];
+    const allowedFields = ['variable', 'path', 'operation', 'host', 'port', 'protocol', 'command',
+        'url', 'method', 'hostname', 'function', 'isIpAddress', 'suspiciousSubdomainLength',
+        'highEntropySubdomain', 'knownExfilService', 'base64InSubdomain', 'hexInSubdomain',
+        'indicators', 'entryPoint', 'sourceLength', 'suspicious'];
 
     for (const field of allowedFields) {
         if (metadata[field] !== undefined) {

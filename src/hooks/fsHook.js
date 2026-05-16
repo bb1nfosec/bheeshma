@@ -15,18 +15,12 @@
 const fs = require('fs');
 const path = require('path');
 const { createSignal, SignalType } = require('../signals/signalTypes');
-const { resolveCurrentStack } = require('../attribution/resolver');
+const { resolveCurrentStack, isWhitelisted } = require('../attribution/resolver');
 
-/**
- * Global signal collector
- */
 let signalCollector = [];
-
-/**
- * Store original fs functions for restoration
- */
 const originalFunctions = {};
 let isHookInstalled = false;
+let hookConfig = null;
 
 /**
  * FS functions to hook for READ operations
@@ -70,15 +64,17 @@ const WRITE_FUNCTIONS = [
  * - Idempotent: Safe to call multiple times
  * 
  * @param {Array} collector - Shared signal collector
+ * @param {object} config - Bheeshma configuration
  * @returns {boolean} True if installed successfully
  */
-function install(collector) {
+function install(collector, config) {
     try {
         if (isHookInstalled) {
             return true;
         }
 
         signalCollector = collector;
+        hookConfig = config;
 
         // Hook read operations
         for (const fnName of READ_FUNCTIONS) {

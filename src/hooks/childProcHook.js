@@ -15,16 +15,9 @@
 
 const childProcess = require('child_process');
 const { createSignal, SignalType } = require('../signals/signalTypes');
-const { resolveCurrentStack } = require('../attribution/resolver');
+const { resolveCurrentStack, isWhitelisted } = require('../attribution/resolver');
 
-/**
- * Global signal collector
- */
 let signalCollector = [];
-
-/**
- * Store original functions for restoration
- */
 const originalFunctions = {
     exec: null,
     execSync: null,
@@ -36,6 +29,7 @@ const originalFunctions = {
 };
 
 let isHookInstalled = false;
+let hookConfig = null;
 
 /**
  * Install child process hooks
@@ -53,15 +47,17 @@ let isHookInstalled = false;
  * - Preserves all original behavior
  * 
  * @param {Array} collector - Shared signal collector
+ * @param {object} config - Bheeshma configuration
  * @returns {boolean} True if installed successfully
  */
-function install(collector) {
+function install(collector, config) {
     try {
         if (isHookInstalled) {
             return true;
         }
 
         signalCollector = collector;
+        hookConfig = config;
 
         // Hook all child_process functions
         hookFunction('exec');
