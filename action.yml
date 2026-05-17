@@ -1,25 +1,5 @@
 name: 'Bheeshma — Runtime Supply Chain Security'
-description: >-
-  Catch npm supply-chain attacks at runtime. Bheeshma monitors every file your dependencies
-  touch, every network call, every env variable read, and every child process spawned.
-  Detects credential theft, data exfiltration, backdoors, ransomware, cryptojacking,
-  obfuscated payloads, and malicious postinstall scripts that static analysis misses.
-
-  Works out of the box — no config needed. Outputs SARIF v2.1.0 for GitHub Code Scanning
-  with inline PR annotations.
-
-  🛡️ What it catches:
-  • Stolen AWS keys, tokens, and credentials sent to attacker servers
-  • Hidden backdoors and reverse shells in postinstall scripts
-  • Data exfiltration to suspicious endpoints
-  • Obfuscated eval(), Function(), and child_process.exec() payloads
-  • Typosquat and dependency confusion attacks
-  • Cryptojacking and ransomware droppers
-
-  🚀 Quick start:
-    - uses: bb1nfosec/bheeshma@v2
-      with:
-        command: 'npm test'
+description: 'Catch npm supply-chain attacks at runtime. Detects credential theft, backdoors, and exfiltration static analysis misses.'
 
 author: 'bb1nfosec'
 branding:
