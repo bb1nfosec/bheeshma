@@ -1,21 +1,21 @@
-name: 'Bheeshma Runtime Monitor'
-description: 'Runtime dependency behavior monitor for npm packages — the strace for npm. Detects supply chain attacks that static analysis misses. Outputs SARIF for GitHub Code Scanning.'
+name: 'Bheeshma Runtime Security Monitor'
+description: 'Catch npm supply-chain attacks at runtime — the strace for npm packages. Detects malicious postinstall scripts, credential theft, data exfiltration, backdoors, and obfuscated payloads that static analysis misses. Outputs SARIF for GitHub Code Scanning with inline PR annotations.'
 author: 'bb1nfosec'
 
 branding:
-  icon: 'shield'
+  icon: 'shield-check'
   color: 'red'
 
 inputs:
   command:
-    description: 'Command to run under monitoring (e.g., "npm test", "node app.js")'
+    description: 'Command to run under bheeshma monitoring (e.g., "npm test", "npm ci", "node app.js")'
     required: true
   fail-level:
-    description: 'Minimum risk level to fail the build'
+    description: 'Minimum risk level to fail the build (critical | high | medium | low)'
     required: false
     default: 'critical'
   config:
-    description: 'Path to .bheeshmarc.json config file'
+    description: 'Path to .bheeshmarc.json config file (optional)'
     required: false
     default: ''
   sarif-output:
@@ -23,13 +23,21 @@ inputs:
     required: false
     default: 'bheeshma-results.sarif'
   skip-low:
-    description: 'Skip LOW-risk signals in SARIF output (reduces noise)'
+    description: 'Skip LOW-risk signals in SARIF output to reduce noise'
     required: false
     default: 'true'
   upload-sarif:
-    description: 'Upload SARIF to GitHub Code Scanning'
+    description: 'Upload SARIF to GitHub Code Scanning (shows inline annotations on PRs)'
     required: false
     default: 'true'
+
+outputs:
+  sarif-file:
+    description: 'Path to the generated SARIF file'
+    value: ${{ inputs.sarif-output }}
+  exit-code:
+    description: 'Exit code from bheeshma (0 = pass, 1 = policy violation)'
+    value: ${{ steps.bheeshma.outputs.exit-code }}
 
 runs:
   using: 'composite'
@@ -49,10 +57,11 @@ runs:
           ARGS="$ARGS --no-skip-low"
         fi
 
-        echo "::group::Bheeshma — Runtime Dependency Monitor"
+        echo "::group::Bheeshma — Runtime Security Monitor"
         node "$BHEESHMA_ROOT/bin/bheeshma-ci.js" $ARGS -- ${{ inputs.command }}
         BHEESHMA_EXIT=$?
         echo "::endgroup::"
+        echo "exit-code=$BHEESHMA_EXIT" >> "$GITHUB_OUTPUT"
         exit $BHEESHMA_EXIT
 
     - name: Upload SARIF results
