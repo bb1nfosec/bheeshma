@@ -2,6 +2,11 @@ name: 'Bheeshma — Runtime Supply Chain Security'
 description: 'Catch npm supply-chain attacks at runtime. Detects credential theft, backdoors, and exfiltration static analysis misses.'
 
 author: 'bb1nfosec'
+
+categories:
+  - Security
+  - Continuous Integration
+
 branding:
   icon: 'shield-check'
   color: 'red'
