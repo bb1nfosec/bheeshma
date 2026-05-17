@@ -1,0 +1,106 @@
+name: 'Bheeshma — Runtime Supply Chain Security'
+description: >-
+  Catch npm supply-chain attacks at runtime. Bheeshma monitors every file your dependencies
+  touch, every network call, every env variable read, and every child process spawned.
+  Detects credential theft, data exfiltration, backdoors, ransomware, cryptojacking,
+  obfuscated payloads, and malicious postinstall scripts that static analysis misses.
+
+  Works out of the box — no config needed. Outputs SARIF v2.1.0 for GitHub Code Scanning
+  with inline PR annotations.
+
+  🛡️ What it catches:
+  • Stolen AWS keys, tokens, and credentials sent to attacker servers
+  • Hidden backdoors and reverse shells in postinstall scripts
+  • Data exfiltration to suspicious endpoints
+  • Obfuscated eval(), Function(), and child_process.exec() payloads
+  • Typosquat and dependency confusion attacks
+  • Cryptojacking and ransomware droppers
+
+  🚀 Quick start:
+    - uses: bb1nfosec/bheeshma@v2
+      with:
+        command: 'npm test'
+
+author: 'bb1nfosec'
+branding:
+  icon: 'shield-check'
+  color: 'red'
+
+inputs:
+  command:
+    description: 'Command to monitor (e.g. "npm test", "npm ci", "node app.js")'
+    required: true
+  fail-level:
+    description: 'Minimum risk level to fail the build. Options: critical, high, medium, low'
+    required: false
+    default: 'critical'
+  config:
+    description: 'Path to .bheeshmarc.json config file'
+    required: false
+    default: ''
+  sarif-output:
+    description: 'Output path for SARIF results file'
+    required: false
+    default: 'bheeshma-results.sarif'
+  skip-low:
+    description: 'Skip LOW-risk signals in SARIF to reduce noise'
+    required: false
+    default: 'true'
+  upload-sarif:
+    description: 'Upload SARIF to GitHub Code Scanning for inline PR annotations'
+    required: false
+    default: 'true'
+  enforce:
+    description: 'Fail the build on any policy violation (same as --enforce flag)'
+    required: false
+    default: 'false'
+
+outputs:
+  sarif-file:
+    description: 'Path to the generated SARIF file'
+    value: ${{ inputs.sarif-output }}
+  exit-code:
+    description: 'Exit code from bheeshma (0 = clean, 1 = policy violation detected)'
+    value: ${{ steps.bheeshma.outputs.exit-code }}
+  findings:
+    description: 'JSON summary of security findings'
+    value: ${{ steps.bheeshma.outputs.findings }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install bheeshma
+      shell: bash
+      run: npm install -g bheeshma@latest
+
+    - name: Run bheeshma runtime security monitor
+      shell: bash
+      id: bheeshma
+      run: |
+        ARGS=""
+        if [ -n "${{ inputs.config }}" ]; then
+          ARGS="$ARGS --config ${{ inputs.config }}"
+        fi
+        if [ "${{ inputs.enforce }}" = "true" ]; then
+          ARGS="$ARGS --enforce"
+        fi
+        ARGS="$ARGS --fail-level ${{ inputs.fail-level }}"
+        ARGS="$ARGS --output ${{ inputs.sarif-output }}"
+        if [ "${{ inputs.skip-low }}" = "false" ]; then
+          ARGS="$ARGS --no-skip-low"
+        fi
+
+        echo "::group::🛡️ Bheeshma — Runtime Supply Chain Security Monitor"
+        bheeshma $ARGS -- ${{ inputs.command }}
+        BHEESHMA_EXIT=$?
+        echo "::endgroup::"
+        echo "exit-code=$BHEESHMA_EXIT" >> "$GITHUB_OUTPUT"
+        echo "findings={\"exit_code\": $BHEESHMA_EXIT, \"sarif\": \"${{ inputs.sarif-output }}\"}" >> "$GITHUB_OUTPUT"
+        exit $BHEESHMA_EXIT
+
+    - name: Upload SARIF to GitHub Code Scanning
+      if: inputs.upload-sarif == 'true' && always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.sarif-output }}
+        category: bheeshma
