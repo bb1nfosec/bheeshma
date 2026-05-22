@@ -42,7 +42,7 @@ if (isMainThread) {
         }
 
         try {
-            const bheeshma = require('../index');
+            const bheeshma = require('./index');
             const config = workerData && workerData.bheeshmaConfig
                 ? workerData.bheeshmaConfig
                 : undefined;

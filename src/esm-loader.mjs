@@ -1,34 +1,37 @@
 /**
  * BHEESHMA ESM Loader Hook
- * 
+ *
  * Intercepts ES module imports via Node.js --loader API.
- * Records every ESM import and resolves package attribution
- * before calling the original loader.
- * 
- * Usage: node --loader bheeshma/src/esm-loader.mjs app.js
- * 
- * This makes Bheeshma compatible with pure ESM packages
- * (got, node-fetch v3+, chalk v5+, execa v6+, etc.)
- * which are invisible to the require() hook approach.
+ * Records every third-party ESM import and resolves package attribution.
+ *
+ * Usage: node --loader bheeshma/src/esm-loader.mjs app.mjs
+ *
+ * Supports ESM-only packages invisible to the require() hooks:
+ * got v12+, node-fetch v3+, chalk v5+, execa v6+, p-limit v4+, etc.
+ *
+ * Implementation notes:
+ * - Must use createRequire to load CJS modules from ESM context
+ * - process.bheeshmaSignals / process.bheeshmaConfig are set by the CLI
+ *   before the child process launches, giving this loader a shared channel
  */
 
-'use strict';
+import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
 
-// ESM loader API — this file must be .mjs
-const { resolve, load, getFormat } = require('module');
+const require = createRequire(import.meta.url);
 
-// Import the signal infrastructure from CJS
-const { createSignal, SignalType } = require('./signals/signalTypes');
-const { getPackageFromStack, isWhitelisted } = require('./attribution/resolver');
+// Lazy-load CJS signal infrastructure to avoid circular init issues
+let _infra = null;
+function infra() {
+    if (_infra) return _infra;
+    const { createSignal, SignalType } = require('./signals/signalTypes.js');
+    const { getPackageFromStack, isWhitelisted } = require('./attribution/resolver.js');
+    _infra = { createSignal, SignalType, getPackageFromStack, isWhitelisted };
+    return _infra;
+}
 
-// Global signal store — shared with CJS hooks
-// We access the main module's signals array via process.bheeshmaSignals
 function getSignalCollector() {
-    if (process.bheeshmaSignals) {
-        return process.bheeshmaSignals;
-    }
-    // Initialize if not set
-    process.bheeshmaSignals = [];
+    if (!process.bheeshmaSignals) process.bheeshmaSignals = [];
     return process.bheeshmaSignals;
 }
 
@@ -37,60 +40,59 @@ function getConfig() {
 }
 
 /**
- * Resolve hook — intercepts every import URL
+ * resolve hook — intercepts every import specifier.
+ * Fires before the module is loaded, letting us record the import attempt.
  */
 export async function resolve(specifier, context, nextResolve) {
     try {
-        const url = await nextResolve(specifier, context);
+        const result = await nextResolve(specifier, context);
 
-        // Check if the resolved URL is inside node_modules
-        if (url && url.url && url.url.includes('node_modules')) {
+        if (result && result.url && result.url.includes('node_modules')) {
             const stack = new Error().stack;
+            const { getPackageFromStack, isWhitelisted, createSignal, SignalType } = infra();
             const attribution = getPackageFromStack(stack);
 
             if (attribution) {
                 const config = getConfig();
-                // Check whitelist
-                if (config && config.whitelist) {
-                    const { isWhitelisted } = require('./attribution/resolver');
-                    if (isWhitelisted(attribution.name, attribution.version, config.whitelist)) {
-                        return url;
-                    }
+
+                // Respect whitelist — same as CJS hooks
+                if (config && config.whitelist &&
+                    isWhitelisted(attribution.name, attribution.version, config.whitelist)) {
+                    return result;
                 }
 
-                const signals = getSignalCollector();
+                const filePath = result.url.startsWith('file://')
+                    ? fileURLToPath(result.url)
+                    : result.url;
 
-                // Create an ESM_IMPORT signal — we use FS_READ as the closest analog
-                // since ESM loading is a form of file system access
                 const signal = createSignal(
                     SignalType.FS_READ,
                     {
-                        path: url.url.replace('file://', ''),
+                        path: filePath,
                         operation: 'esm_import',
-                        specifier: specifier,
-                        format: url.format || 'unknown'
+                        specifier,
+                        format: result.format || 'unknown'
                     },
                     attribution.name,
                     attribution.version,
                     stack
                 );
 
-                signals.push(signal);
+                getSignalCollector().push(signal);
             }
         }
 
-        return url;
-    } catch (err) {
-        // Fail-safe: pass through to original loader
+        return result;
+    } catch (_err) {
+        // Fail-safe: never block the import
         return nextResolve(specifier, context);
     }
 }
 
 /**
- * Load hook — intercepts module loading
+ * load hook — pass-through.
+ * All interception is done in resolve; we don't need to modify source.
  */
 export async function load(url, context, nextLoad) {
-    // Just pass through to original loader
-    // All interception happens in resolve
     return nextLoad(url, context);
 }

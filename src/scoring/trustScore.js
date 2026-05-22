@@ -19,16 +19,20 @@ const { SignalType } = require('../signals/signalTypes');
  * Higher weight = greater risk deduction
  */
 const RISK_WEIGHTS = Object.freeze({
-    [SignalType.SHELL_EXEC]: 20,
-    [SignalType.FS_WRITE]: 10,
-    [SignalType.NET_CONNECT]: 8,
-    [SignalType.ENV_ACCESS]: 5,
-    [SignalType.FS_READ]: 3,
-    [SignalType.HTTP_REQUEST]: 10,
-    [SignalType.HTTPS_REQUEST]: 8,
-    [SignalType.DNS_QUERY]: 4,
+    [SignalType.SHELL_EXEC]:           20,
+    [SignalType.FS_WRITE]:             10,
+    [SignalType.NET_CONNECT]:           8,
+    [SignalType.ENV_ACCESS]:            5,
+    [SignalType.FS_READ]:               3,
+    [SignalType.HTTP_REQUEST]:         10,
+    [SignalType.HTTPS_REQUEST]:         8,
+    [SignalType.DNS_QUERY]:             4,
     [SignalType.OBFUSCATION_DETECTED]: 25,
-    'BLACKLISTED_PACKAGE': 100
+    [SignalType.VM_EXEC]:              20,   // code execution — same weight as SHELL_EXEC
+    [SignalType.CRYPTO_OP]:             8,   // decrypt/cipher ops — suspicious but may be legit
+    [SignalType.HOOK_TAMPER]:         100,   // evasion — guaranteed CRITICAL
+    [SignalType.PROTO_POLLUTION]:      30,   // injection attack
+    'BLACKLISTED_PACKAGE':            100
 });
 
 /**
@@ -224,17 +228,11 @@ function calculateAllScores(allSignals, options = {}) {
  * Initialize statistics object for a package
  */
 function initializeStats() {
-    return {
-        [SignalType.ENV_ACCESS]: 0,
-        [SignalType.FS_READ]: 0,
-        [SignalType.FS_WRITE]: 0,
-        [SignalType.SHELL_EXEC]: 0,
-        [SignalType.NET_CONNECT]: 0,
-        [SignalType.HTTP_REQUEST]: 0,
-        [SignalType.HTTPS_REQUEST]: 0,
-        [SignalType.DNS_QUERY]: 0,
-        [SignalType.OBFUSCATION_DETECTED]: 0
-    };
+    const stats = {};
+    for (const type of Object.values(SignalType)) {
+        stats[type] = 0;
+    }
+    return stats;
 }
 
 /**
@@ -266,25 +264,48 @@ function getRiskLevel(score, customThreshold) {
 }
 
 /**
- * Check if any package has CRITICAL risk level (for enforcement mode)
- * 
+ * Risk level numeric priority — higher = more severe.
+ */
+const RISK_PRIORITY = Object.freeze({ CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 });
+
+/**
+ * Check if any package has CRITICAL risk level (for enforcement mode).
+ * Kept for backwards compatibility — use findViolatingPackages for configurable levels.
+ *
  * @param {Map} scores - Trust scores map
  * @param {object} config - Configuration with thresholds
- * @returns {object|null} { package, score, riskLevel } or null if all pass
+ * @returns {Array} CRITICAL packages
  */
 function findCriticalPackages(scores, config = {}) {
-    const critical = [];
+    return findViolatingPackages(scores, 'critical');
+}
+
+/**
+ * Find packages that violate the configured fail level.
+ * Returns packages whose riskLevel meets or exceeds the threshold.
+ *
+ * @param {Map} scores - Trust scores map from calculateAllScores
+ * @param {string} failLevel - 'critical' | 'high' | 'medium' | 'low'
+ * @returns {Array} Violating packages: [{ name, version, score, riskLevel }]
+ */
+function findViolatingPackages(scores, failLevel = 'critical') {
+    const minPriority = RISK_PRIORITY[(failLevel || 'critical').toUpperCase()] || RISK_PRIORITY.CRITICAL;
+    const violations = [];
+
     for (const [, data] of scores) {
-        if (data.riskLevel === 'CRITICAL') {
-            critical.push({
+        const pkgPriority = RISK_PRIORITY[data.riskLevel] || 0;
+        if (pkgPriority >= minPriority) {
+            violations.push({
                 name: data.name,
                 version: data.version,
                 score: data.score,
-                riskLevel: data.riskLevel
+                riskLevel: data.riskLevel,
+                signalCount: data.signalCount
             });
         }
     }
-    return critical;
+
+    return violations;
 }
 
 module.exports = {
@@ -292,6 +313,8 @@ module.exports = {
     calculateAllScores,
     getRiskLevel,
     findCriticalPackages,
+    findViolatingPackages,
     deduplicateSignals,
-    RISK_WEIGHTS
+    RISK_WEIGHTS,
+    RISK_PRIORITY
 };

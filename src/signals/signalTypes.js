@@ -1,120 +1,89 @@
-/**
- * BHEESHMA Signal Type Definitions
- * 
- * Security: Immutable signal schema ensuring integrity and preventing tampering.
- * Follows OWASP principle: "Define security requirements"
- * 
- * Each signal represents a runtime behavior observed from a third-party dependency.
- * Signals are metadata-only and never capture sensitive content (passwords, keys, etc.)
- */
-
 'use strict';
 
 /**
- * Signal Types - Enumeration of observable runtime behaviors
+ * Signal Types — enumeration of all observable runtime behaviors.
  * @readonly
  * @enum {string}
  */
 const SignalType = Object.freeze({
-  ENV_ACCESS: 'ENV_ACCESS',       // Access to process.env
-  FS_READ: 'FS_READ',             // File system read operation
-  FS_WRITE: 'FS_WRITE',           // File system write operation
-  SHELL_EXEC: 'SHELL_EXEC',       // Shell/child process execution
-  NET_CONNECT: 'NET_CONNECT',     // Outbound network connection
-  HTTP_REQUEST: 'HTTP_REQUEST',   // HTTP request
-  HTTPS_REQUEST: 'HTTPS_REQUEST', // HTTPS request
-  DNS_QUERY: 'DNS_QUERY',         // DNS resolution query
-  OBFUSCATION_DETECTED: 'OBFUSCATION_DETECTED' // Static obfuscation found
+    ENV_ACCESS:           'ENV_ACCESS',           // process.env property access
+    FS_READ:              'FS_READ',              // fs read operation
+    FS_WRITE:             'FS_WRITE',             // fs write operation
+    SHELL_EXEC:           'SHELL_EXEC',           // child_process exec/spawn/fork
+    NET_CONNECT:          'NET_CONNECT',          // raw TCP or IPC socket connect
+    HTTP_REQUEST:         'HTTP_REQUEST',         // http.request
+    HTTPS_REQUEST:        'HTTPS_REQUEST',        // https.request
+    DNS_QUERY:            'DNS_QUERY',            // dns.lookup/resolve/*
+    OBFUSCATION_DETECTED: 'OBFUSCATION_DETECTED', // static obfuscation scan hit
+    VM_EXEC:              'VM_EXEC',              // vm.runInNewContext / vm.Script
+    CRYPTO_OP:            'CRYPTO_OP',            // crypto cipher/decipher/hash
+    HOOK_TAMPER:          'HOOK_TAMPER',          // bheeshma hook was overwritten
+    PROTO_POLLUTION:      'PROTO_POLLUTION',      // prototype pollution attempt
 });
 
 /**
- * Create an immutable signal object
- * 
- * Security considerations:
- * - Objects are frozen to prevent tampering
- * - Timestamps use ISO 8601 for deterministic comparison
- * - Stack traces are sanitized (caller responsible for filtering sensitive paths)
- * - Metadata is intentionally limited to prevent secret leakage
- * 
- * @param {string} type - Signal type from SignalType enum
- * @param {object} metadata - Type-specific metadata (varies by signal type)
- * @param {string} packageName - Attributed npm package (or null if first-party)
- * @param {string} packageVersion - Package version
- * @param {string} stackTrace - Sanitized stack trace
- * @returns {object} Frozen signal object
+ * Create an immutable signal object.
+ * All fields are frozen to prevent post-creation tampering.
+ *
+ * @param {string} type          - SignalType value
+ * @param {object} metadata      - Type-specific metadata (never contains secrets)
+ * @param {string} packageName   - Attributed npm package name (null = first-party)
+ * @param {string} packageVersion
+ * @param {string} stackTrace    - Raw stack trace string
+ * @returns {object} Frozen signal
  */
 function createSignal(type, metadata, packageName, packageVersion, stackTrace) {
-  // Defensive: Validate signal type
-  if (!Object.values(SignalType).includes(type)) {
-    throw new TypeError(`Invalid signal type: ${type}`);
-  }
-
-  const signal = {
-    timestamp: new Date().toISOString(),
-    type,
-    package: packageName || null,
-    version: packageVersion || null,
-    metadata: metadata || {},
-    stackTrace: stackTrace || null
-  };
-
-  // Security: Make immutable to prevent post-creation tampering
-  return Object.freeze(signal);
+    if (!Object.values(SignalType).includes(type)) {
+        throw new TypeError(`Invalid signal type: ${type}`);
+    }
+    return Object.freeze({
+        timestamp:  new Date().toISOString(),
+        type,
+        package:    packageName  || null,
+        version:    packageVersion || null,
+        metadata:   metadata    || {},
+        stackTrace: stackTrace  || null
+    });
 }
 
 /**
- * Validate signal metadata based on type
- * Ensures required fields are present for each signal type
- * 
- * @param {string} type - Signal type
- * @param {object} metadata - Metadata to validate
- * @returns {boolean} True if valid
+ * Validate signal metadata fields for a given type.
+ *
+ * @param {string} type
+ * @param {object} metadata
+ * @returns {boolean}
  */
 function validateSignalMetadata(type, metadata) {
-  if (!metadata || typeof metadata !== 'object') {
-    return false;
-  }
+    if (!metadata || typeof metadata !== 'object') return false;
 
-  switch (type) {
-    case SignalType.ENV_ACCESS:
-      // Must have variable name (not value - security consideration)
-      return typeof metadata.variable === 'string';
-
-    case SignalType.FS_READ:
-    case SignalType.FS_WRITE:
-      // Must have file path (absolute, sanitized)
-      return typeof metadata.path === 'string';
-
-    case SignalType.SHELL_EXEC:
-      // Must have command (sanitized - no interpolated secrets)
-      return typeof metadata.command === 'string';
-
-    case SignalType.NET_CONNECT:
-      // Must have host and port
-      return typeof metadata.host === 'string' &&
-        typeof metadata.port === 'number';
-
-    case SignalType.HTTP_REQUEST:
-    case SignalType.HTTPS_REQUEST:
-      // Must have URL and method
-      return typeof metadata.url === 'string' &&
-        typeof metadata.method === 'string';
-
-    case SignalType.DNS_QUERY:
-      // Must have hostname
-      return typeof metadata.hostname === 'string';
-
-    case SignalType.OBFUSCATION_DETECTED:
-      // Must have indicator description
-      return typeof metadata.indicators === 'object';
-
-    default:
-      return false;
-  }
+    switch (type) {
+        case SignalType.ENV_ACCESS:
+            return typeof metadata.variable === 'string';
+        case SignalType.FS_READ:
+        case SignalType.FS_WRITE:
+            return typeof metadata.path === 'string';
+        case SignalType.SHELL_EXEC:
+            return typeof metadata.command === 'string';
+        case SignalType.NET_CONNECT:
+            return typeof metadata.host === 'string';
+        case SignalType.HTTP_REQUEST:
+        case SignalType.HTTPS_REQUEST:
+            return typeof metadata.url === 'string' && typeof metadata.method === 'string';
+        case SignalType.DNS_QUERY:
+            return typeof metadata.hostname === 'string';
+        case SignalType.OBFUSCATION_DETECTED:
+            return typeof metadata.indicators === 'object';
+        case SignalType.VM_EXEC:
+            return typeof metadata.method === 'string';
+        case SignalType.CRYPTO_OP:
+            return typeof metadata.operation === 'string';
+        case SignalType.HOOK_TAMPER:
+            return typeof metadata.hook === 'string';
+        case SignalType.PROTO_POLLUTION:
+            return typeof metadata.pattern === 'string';
+        default:
+            return false;
+    }
 }
 
-module.exports = {
-  SignalType,
-  createSignal,
-  validateSignalMetadata
-};
+module.exports = { SignalType, createSignal, validateSignalMetadata };

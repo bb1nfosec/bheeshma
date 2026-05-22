@@ -249,7 +249,7 @@ async function main() {
 
     if (options.format === 'sarif') {
         // SARIF output
-        const { formatSarifReport } = require('../src/output/sarifFormatter');
+        const { formatReport: formatSarifReport } = require('../src/output/sarifFormatter');
         const { analyzePatterns } = require('../src/patterns/patternMatcher');
         const scores = bheeshma.getTrustScores();
         const signals = bheeshma.getSignals();

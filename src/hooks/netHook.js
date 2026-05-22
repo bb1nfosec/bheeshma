@@ -79,7 +79,7 @@ function hookNetConnect() {
             // - net.connect(path) for IPC
             const connInfo = parseNetConnectArgs(args);
             if (connInfo) {
-                emitNetSignal(connInfo.host, connInfo.port, 'tcp');
+                emitNetSignal(connInfo.host, connInfo.port, connInfo.protocol || 'tcp');
             }
         } catch (err) {
             // Fail-safe
@@ -91,36 +91,42 @@ function hookNetConnect() {
 }
 
 /**
- * Parse net.connect arguments to extract host and port
- * 
- * @param {Array} args - Arguments to net.connect
- * @returns {object|null} { host, port } or null
+ * Parse net.connect arguments to extract connection info.
+ *
+ * net.connect signatures:
+ *   net.connect(port[, host])          — TCP
+ *   net.connect(options)               — TCP or IPC (options.path)
+ *   net.connect('/var/run/sock.sock')  — IPC / Unix socket (string path)
+ *
+ * @param {Array} args
+ * @returns {{ host: string, port: number, protocol: string }|null}
  */
 function parseNetConnectArgs(args) {
     try {
-        if (args.length === 0) {
-            return null;
-        }
+        if (args.length === 0) return null;
 
-        // Check if first arg is an options object
+        // Options object — may be TCP or IPC (has .path for Unix sockets)
         if (typeof args[0] === 'object' && args[0] !== null) {
-            const options = args[0];
-            return {
-                host: options.host || 'localhost',
-                port: options.port || 0
-            };
+            const opts = args[0];
+            if (opts.path) {
+                // Unix / IPC socket — host = socket path, port = 0
+                return { host: opts.path, port: 0, protocol: 'ipc' };
+            }
+            return { host: opts.host || 'localhost', port: opts.port || 0, protocol: 'tcp' };
         }
 
-        // Check if called as (port, host)
+        // (port, host) TCP form
         if (typeof args[0] === 'number') {
-            return {
-                port: args[0],
-                host: args[1] || 'localhost'
-            };
+            return { host: args[1] || 'localhost', port: args[0], protocol: 'tcp' };
+        }
+
+        // String first arg = IPC / Unix socket path (e.g. '/var/run/docker.sock')
+        if (typeof args[0] === 'string') {
+            return { host: args[0], port: 0, protocol: 'ipc' };
         }
 
         return null;
-    } catch (err) {
+    } catch (_) {
         return null;
     }
 }

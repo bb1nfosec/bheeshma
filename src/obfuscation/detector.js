@@ -103,8 +103,20 @@ function scanPackage(packageName, packageDir, signalCollector, config) {
 }
 
 /**
- * Detect obfuscation patterns in source code
- * 
+ * Detect obfuscation patterns in source code.
+ *
+ * Patterns:
+ *  1.  eval()                      — dynamic code execution          HIGH
+ *  2.  Function() constructor      — dynamic code execution          HIGH
+ *  3.  Buffer.from().toString() ×3+— common base64 decode idiom      MEDIUM
+ *  4.  Hex string literal >100 ch  — encoded payload                 HIGH
+ *  5.  \\x escape density >10%     — heavily hex-escaped source      HIGH
+ *  6.  String.fromCharCode ×4+     — character-code string building  HIGH
+ *  7.  atob()                      — base64 decoding                 MEDIUM
+ *  8.  Excessive concat ×6+        — split-string obfuscation        MEDIUM
+ *  9.  process.binding()           — direct Node.js internal access  HIGH
+ * 10.  Long charCode array >8 elem — payload encoded as int array    HIGH
+ *
  * @param {string} source - Source code string
  * @returns {Array} Array of indicator objects
  */
@@ -122,7 +134,7 @@ function detectObfuscationPatterns(source) {
         });
     }
 
-    // 2. Function() constructor usage
+    // 2. Function() constructor
     const functionMatches = source.match(/(?:new\s+)?Function\s*\(/g);
     if (functionMatches && functionMatches.length > 0) {
         indicators.push({
@@ -133,7 +145,7 @@ function detectObfuscationPatterns(source) {
         });
     }
 
-    // 3. Buffer.from(...).toString() — common decode pattern
+    // 3. Buffer.from(...).toString() — common base64 decode pattern (threshold: >2)
     const bufferDecodeMatches = source.match(/Buffer\.from\s*\([^)]+\)\s*\.toString/g);
     if (bufferDecodeMatches && bufferDecodeMatches.length > 2) {
         indicators.push({
@@ -144,7 +156,7 @@ function detectObfuscationPatterns(source) {
         });
     }
 
-    // 4. Hex string literals > 100 chars
+    // 4. Long hex string literals (>100 chars)
     const hexStringMatches = source.match(/['"][0-9a-fA-F]{100,}['"]/g);
     if (hexStringMatches) {
         indicators.push({
@@ -155,32 +167,32 @@ function detectObfuscationPatterns(source) {
         });
     }
 
-    // 5. \x escape density > 10%
+    // 5. \\x escape density >10%
     const xEscapeMatches = source.match(/\\x[0-9a-fA-F]{2}/g);
     if (xEscapeMatches && source.length > 0) {
-        const xEscapeDensity = (xEscapeMatches.length * 4) / source.length;
-        if (xEscapeDensity > 0.10) {
+        const density = (xEscapeMatches.length * 4) / source.length;
+        if (density > 0.10) {
             indicators.push({
                 type: 'HIGH_HEX_ESCAPE_DENSITY',
                 severity: 'HIGH',
-                density: xEscapeDensity.toFixed(4),
-                description: `\\x escape density ${((xEscapeDensity) * 100).toFixed(1)}% — heavily obfuscated source`
+                density: density.toFixed(4),
+                description: `\\x escape density ${(density * 100).toFixed(1)}% — heavily obfuscated source`
             });
         }
     }
 
-    // 6. String.fromCharCode chains
+    // 6. String.fromCharCode chains (threshold: >3)
     const fromCharCodeMatches = source.match(/String\.fromCharCode/g);
     if (fromCharCodeMatches && fromCharCodeMatches.length > 3) {
         indicators.push({
             type: 'FROM_CHAR_CODE_CHAIN',
             severity: 'HIGH',
             count: fromCharCodeMatches.length,
-            description: `String.fromCharCode() found ${fromCharCodeMatches.length} times — string obfuscation`
+            description: `String.fromCharCode() found ${fromCharCodeMatches.length} times — character-code string obfuscation`
         });
     }
 
-    // 7. atob() — Base64 decode
+    // 7. atob() — browser-style base64 decode (present in some Node environments)
     const atobMatches = source.match(/atob\s*\(/g);
     if (atobMatches && atobMatches.length > 0) {
         indicators.push({
@@ -191,15 +203,56 @@ function detectObfuscationPatterns(source) {
         });
     }
 
-    // 8. Excessive string concatenation (obfuscation technique)
+    // 8. Excessive short-string concatenation (threshold: >5 chains)
     const concatMatches = source.match(/['"][^'"]{1,5}['"]\s*\+\s*['"][^'"]{1,5}['"]\s*\+\s*['"][^'"]{1,5}['"]/g);
     if (concatMatches && concatMatches.length > 5) {
         indicators.push({
             type: 'EXCESSIVE_CONCATENATION',
             severity: 'MEDIUM',
             count: concatMatches.length,
-            description: `Suspicious string concatenation chains (${concatMatches.length}) — possible obfuscation`
+            description: `Suspicious string concatenation chains (${concatMatches.length}) — possible split-string obfuscation`
         });
+    }
+
+    // 9. process.binding() — direct access to Node.js C++ internals
+    //    Legitimate use is vanishingly rare outside Node.js core itself.
+    const bindingMatches = source.match(/process\.binding\s*\(/g);
+    if (bindingMatches && bindingMatches.length > 0) {
+        indicators.push({
+            type: 'PROCESS_BINDING',
+            severity: 'HIGH',
+            count: bindingMatches.length,
+            description: `process.binding() found ${bindingMatches.length} time(s) — direct Node.js internal access`
+        });
+    }
+
+    // 10. Long integer array (charCode payload) — e.g. [72,101,108,108,111,...] >8 elements
+    const charCodeArrayMatches = source.match(/\[(?:\d{1,3},\s*){8,}\d{1,3}\]/g);
+    if (charCodeArrayMatches && charCodeArrayMatches.length > 0) {
+        indicators.push({
+            type: 'CHAR_CODE_ARRAY',
+            severity: 'HIGH',
+            count: charCodeArrayMatches.length,
+            description: `Long integer array(s) found (${charCodeArrayMatches.length}) — possible payload encoded as charCode sequence`
+        });
+    }
+
+    // 11. Prototype pollution patterns
+    //     Object.prototype assignment, __proto__ mutation, constructor.prototype manipulation
+    const protoPatterns = [
+        { re: /Object\.prototype\.\w+\s*=/, label: 'Object.prototype property assignment' },
+        { re: /__proto__\s*[=[]/, label: '__proto__ mutation' },
+        { re: /\[['"]__proto__['"]\]/, label: '__proto__ bracket access' },
+        { re: /constructor\s*\.\s*prototype\s*\.\w+\s*=/, label: 'constructor.prototype mutation' }
+    ];
+    for (const { re, label } of protoPatterns) {
+        if (re.test(source)) {
+            indicators.push({
+                type: 'PROTO_POLLUTION',
+                severity: 'HIGH',
+                description: `Prototype pollution pattern: ${label}`
+            });
+        }
     }
 
     return indicators;

@@ -191,8 +191,8 @@ async function main() {
     const sarifPath = writeSarifReport(options.output, options);
     ciLog('info', `SARIF report: ${sarifPath}`);
 
-    // Check policy
-    const enforcement = bheeshma.enforcePolicy();
+    // Check policy — enforcePolicy respects failLevel directly
+    const enforcement = bheeshma.enforcePolicy({ failLevel: options.failLevel });
 
     // Log summary to stderr
     const scores = bheeshma.getTrustScores();
@@ -204,21 +204,7 @@ async function main() {
             ciLog('error', `POLICY VIOLATION: ${pkg.name}@${pkg.version} — trust score ${pkg.score} (${pkg.riskLevel})`);
         }
         ciLog('error', enforcement.message);
-
-        // Fail based on configured level
-        const shouldFail = enforcement.criticalPackages.some(pkg => {
-            switch (options.failLevel) {
-                case 'low': return true;
-                case 'medium': return ['CRITICAL', 'HIGH', 'MEDIUM'].includes(pkg.riskLevel);
-                case 'high': return ['CRITICAL', 'HIGH'].includes(pkg.riskLevel);
-                case 'critical': return pkg.riskLevel === 'CRITICAL';
-                default: return pkg.riskLevel === 'CRITICAL';
-            }
-        });
-
-        if (shouldFail) {
-            process.exit(1);
-        }
+        process.exit(1);
     } else {
         ciLog('info', 'All packages within acceptable risk thresholds');
     }

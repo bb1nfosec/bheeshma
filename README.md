@@ -198,11 +198,11 @@ bheeshma --format sarif --output results.sarif -- npm test
 ### Enforcement mode
 
 ```bash
-# Exit code 1 if any package is CRITICAL
+# Exit code 1 if any package is CRITICAL (default)
 bheeshma --enforce -- npm test
 
 # Fail on HIGH or above
-bheeshma-ci --fail-level high -- npm test
+bheeshma --enforce --fail-level high -- npm test
 
 # JSON output + enforcement
 bheeshma --enforce --format json --output report.json -- npm test
@@ -224,9 +224,14 @@ bheeshma-ci --fail-level high --output results.sarif -- npm test
 ### Subcommands
 
 ```bash
-bheeshma install            # Monitor npm install
-bheeshma ci -- <command>    # CI-optimized mode
-bheeshma -- <command>       # Standard monitoring
+bheeshma install                      # Monitor npm install
+bheeshma ci -- <command>              # CI-optimized mode
+bheeshma diff baseline.json now.json  # Compare two reports, exit 1 if regressions
+bheeshma lock --save                  # Hash lockfiles → .bheeshma-lock.json
+bheeshma lock --verify                # Verify lockfile hashes (exit 1 on mismatch)
+bheeshma explain report.json          # Plain-English explanation of findings
+bheeshma learn baseline.json -- node app.js  # Record known-good baseline
+bheeshma -- <command>                 # Standard monitoring
 ```
 
 ### Programmatic API
@@ -262,12 +267,16 @@ if (!result.passed) {
 | Environment variable access | `ENV_ACCESS` | Medium | Credential theft, API key exfiltration |
 | File system reads | `FS_READ` | Low | Reconnaissance, credential file access |
 | File system writes | `FS_WRITE` | High | Persistence, backdoor installation |
-| Raw TCP connections | `NET_CONNECT` | High | Reverse shells, C2 communication |
+| Raw TCP/IPC connections | `NET_CONNECT` | High | Reverse shells, Docker socket access, C2 |
 | HTTP requests | `HTTP_REQUEST` | High | Unencrypted data exfiltration |
 | HTTPS requests | `HTTPS_REQUEST` | Medium-High | Encrypted data exfiltration |
 | DNS queries | `DNS_QUERY` | Medium-High | DNS tunneling, encoded subdomain exfil |
 | Shell execution | `SHELL_EXEC` | Critical | Arbitrary code execution |
-| Obfuscated code | `OBFUSCATION_DETECTED` | Critical | Hidden payloads, eval/Function |
+| VM code execution | `VM_EXEC` | Critical | Hook-evasion via `vm.runInNewContext()` |
+| Crypto API misuse | `CRYPTO_OP` | High | Embedded encrypted payload unpacking |
+| Prototype pollution | `PROTO_POLLUTION` | Critical | Object prototype tampering |
+| Hook tampering | `HOOK_TAMPER` | Critical | Active removal of bheeshma monitors |
+| Obfuscated code | `OBFUSCATION_DETECTED` | Critical | Hidden payloads, eval/Function/hex blobs |
 | Blacklisted packages | `BLACKLISTED_PACKAGE` | Critical | Known malicious packages |
 
 ### Pattern Detection
@@ -277,10 +286,12 @@ BHEESHMA correlates signals to detect complex attack patterns:
 | Pattern | Signals | Severity |
 |---------|---------|----------|
 | **Crypto mining** | `WALLET_ADDRESS` + `MINING_POOL` env vars | CRITICAL |
-| **Data exfiltration** | Credential file read + outbound HTTP | CRITICAL |
+| **Data exfiltration** | Credential file read + outbound HTTP (temporal: ≤2s = CRITICAL, ≤30s = HIGH) | CRITICAL |
 | **Backdoor** | Shell exec + reverse connection | CRITICAL |
 | **Credential theft** | `.env`/`.npmrc` read (context-aware) | HIGH/LOW* |
-| **Typosquat** | Package name similar to popular package | HIGH |
+| **Typosquat** | Package name similar to popular package | MEDIUM |
+| **Hook evasion** | `VM_EXEC` signal from non-vm packages | CRITICAL |
+| **Prototype pollution** | Static `__proto__` / `Object.prototype` mutation | CRITICAL |
 
 *Context-aware: dotenv reading `.env` = LOW (expected). A random package reading `.env` = HIGH (suspicious).
 
@@ -301,6 +312,10 @@ Create `.bheeshmarc.json` in your project root (fully optional):
 
 ```json
 {
+  "hooks": {
+    "env": true, "fs": true, "net": true, "childProcess": true,
+    "http": true, "dns": true, "vm": true, "crypto": true
+  },
   "thresholds": {
     "critical": 30,
     "high": 60,
@@ -320,12 +335,64 @@ Create `.bheeshmarc.json` in your project root (fully optional):
   },
   "performance": {
     "maxSignals": 10000,
-    "deduplicateSignals": true
-  }
+    "deduplicateSignals": true,
+    "sampleRate": 1.0
+  },
+  "logging": {
+    "logFile": null
+  },
+  "baselineFile": null,
+  "webhookFormat": "generic"
 }
 ```
 
 Or use `bheeshma --config .bheeshmarc.json -- node app.js`.
+
+### Behavioral Baseline (reduce false positives)
+
+```bash
+# Step 1: record your app's normal behavior
+bheeshma learn baseline.json -- node app.js
+
+# Step 2: on subsequent runs, only new behaviors are reported
+bheeshma --baseline baseline.json -- node app.js
+```
+
+### Webhook Alerts
+
+```bash
+# Generic JSON (default)
+bheeshma --enforce --alert-webhook https://hooks.example.com/alert -- npm test
+
+# Slack Block Kit
+bheeshma --enforce --alert-webhook https://hooks.slack.com/... --webhook-format slack -- npm test
+
+# PagerDuty Events API v2
+bheeshma --enforce --alert-webhook https://events.pagerduty.com/... --webhook-format pagerduty -- npm test
+
+# Microsoft Teams
+bheeshma --enforce --alert-webhook https://outlook.office.com/... --webhook-format teams -- npm test
+```
+
+### Persistent Signal Log
+
+```json
+{
+  "logging": { "logFile": "/var/log/bheeshma/signals.ndjson" }
+}
+```
+
+Appends every signal as a JSON line. Survives process crashes. Useful for long-running servers.
+
+### Lockfile Integrity
+
+```bash
+# After npm install — record lockfile hashes
+bheeshma lock --save
+
+# In CI — verify nothing changed
+bheeshma lock --verify
+```
 
 ---
 
@@ -409,37 +476,39 @@ npx bheeshma -- node app.js
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────┐
-│                    CLI Layer                         │
-│   bheeshma  │  bheeshma-ci  │  bheeshma-install     │
-└──────────────────┬───────────────────────────────────┘
-                   │
-┌──────────────────▼───────────────────────────────────┐
-│              Output Formatters                        │
-│   CLI  │  JSON  │  HTML  │  SARIF v2.1.0            │
-└──────────────────┬───────────────────────────────────┘
-                   │
-┌──────────────────▼───────────────────────────────────┐
-│     Policy Engine + Trust Scoring                     │
-│   Enforcement │ Thresholds │ Dedup │ Blacklist        │
-└──────────────────┬───────────────────────────────────┘
-                   │
-┌──────────────────▼───────────────────────────────────┐
-│        Pattern + Obfuscation Detection                 │
-│   Crypto │ Exfil │ Backdoors │ Typosquat │ Static    │
-└──────────────────┬───────────────────────────────────┘
-                   │
-┌──────────────────▼───────────────────────────────────┐
-│          Attribution Engine                            │
-│   Stack trace → outermost node_modules resolution    │
-└──────────────────┬───────────────────────────────────┘
-                   │
-┌──────────────────▼───────────────────────────────────┐
-│            Runtime Hooks (6 types)                    │
-│   env │ fs │ net │ http │ dns │ child_process         │
-├──────────────────────────────────────────────────────┤
-│   Worker Thread Support  │  ESM Loader                │
-└──────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                            CLI Layer                                 │
+│  bheeshma │ bheeshma-ci │ bheeshma-install │ bheeshma-diff         │
+│           bheeshma-lock │ bheeshma-explain                          │
+└───────────────────────────────┬─────────────────────────────────────┘
+                                │
+┌───────────────────────────────▼─────────────────────────────────────┐
+│                        Output Formatters                             │
+│      CLI  │  JSON  │  HTML  │  SARIF v2.1.0  │  CycloneDX SBOM     │
+└───────────────────────────────┬─────────────────────────────────────┘
+                                │
+┌───────────────────────────────▼─────────────────────────────────────┐
+│              Policy Engine + Trust Scoring + Baseline               │
+│   Enforcement │ Thresholds │ Dedup │ Blacklist │ Sampling           │
+└───────────────────────────────┬─────────────────────────────────────┘
+                                │
+┌───────────────────────────────▼─────────────────────────────────────┐
+│              Pattern + Obfuscation Detection                         │
+│  Crypto │ Exfil (temporal) │ Backdoors │ Typosquat │ Static scan    │
+│  VM-escape │ Proto-pollution │ Credential theft (context-aware)     │
+└───────────────────────────────┬─────────────────────────────────────┘
+                                │
+┌───────────────────────────────▼─────────────────────────────────────┐
+│                      Attribution Engine                              │
+│        Stack trace → outermost node_modules resolution              │
+└───────────────────────────────┬─────────────────────────────────────┘
+                                │
+┌───────────────────────────────▼─────────────────────────────────────┐
+│                  Runtime Hooks (8 types)                             │
+│   env │ fs │ net (IPC) │ http │ dns │ child_process │ vm │ crypto   │
+├─────────────────────────────────────────────────────────────────────┤
+│   Worker Thread Support  │  ESM Loader  │  Hook Tamper Detection    │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -447,7 +516,7 @@ npx bheeshma -- node app.js
 ## Testing
 
 ```bash
-npm test        # 41/41 tests, no network required
+npm test        # 41 tests, no network required
 ```
 
 All tests run **offline** with **deterministic results**.

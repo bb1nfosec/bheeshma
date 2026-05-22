@@ -25,6 +25,10 @@ function detectSubcommand(args) {
     const first = args[0];
     if (first === 'install' || first === 'i') return 'install';
     if (first === 'ci') return 'ci';
+    if (first === 'diff') return 'diff';
+    if (first === 'lock') return 'lock';
+    if (first === 'explain') return 'explain';
+    if (first === 'learn') return 'learn';
     return null;
 }
 
@@ -36,12 +40,12 @@ function parseArgs() {
 
     // Check for subcommands first
     const sub = detectSubcommand(args);
-    if (sub === 'install') {
-        return { subcommand: 'install', subArgs: args.slice(1) };
-    }
-    if (sub === 'ci') {
-        return { subcommand: 'ci', subArgs: args.slice(1) };
-    }
+    if (sub === 'install') return { subcommand: 'install', subArgs: args.slice(1) };
+    if (sub === 'ci')      return { subcommand: 'ci',      subArgs: args.slice(1) };
+    if (sub === 'diff')    return { subcommand: 'diff',    subArgs: args.slice(1) };
+    if (sub === 'lock')    return { subcommand: 'lock',    subArgs: args.slice(1) };
+    if (sub === 'explain') return { subcommand: 'explain', subArgs: args.slice(1) };
+    if (sub === 'learn')   return { subcommand: 'learn',   subArgs: args.slice(1) };
 
     const options = {
         format: 'cli',
@@ -57,7 +61,19 @@ function parseArgs() {
     while (i < args.length) {
         const arg = args[i];
 
-        if (arg === '--format') {
+        if (arg === '--learn') {
+            options.learn = args[i + 1];
+            i += 2;
+        } else if (arg === '--baseline') {
+            options.baseline = args[i + 1];
+            i += 2;
+        } else if (arg === '--fail-level') {
+            options.failLevel = args[i + 1];
+            i += 2;
+        } else if (arg === '--webhook-format') {
+            options.webhookFormat = args[i + 1];
+            i += 2;
+        } else if (arg === '--format') {
             options.format = args[i + 1];
             i += 2;
         } else if (arg === '--output' || arg === '-o') {
@@ -109,26 +125,39 @@ Usage:
   bheeshma [options] <script.js>
   bheeshma install [options] [-- npm args]    Monitor npm install
   bheeshma ci -- <command>                    CI-optimized mode (SARIF output)
+  bheeshma diff <baseline.json> <current.json>  Compare two reports
+  bheeshma lock --save | --verify             Lockfile integrity check
+  bheeshma explain <report.json>              Plain-English report summary
+  bheeshma learn [baseline.json] -- <cmd>    Record behavioral baseline
 
 Modes:
   (default)     Monitor any Node.js command or script
   install       Monitor npm install for malicious postinstall behavior
   ci            CI/CD-optimized mode with SARIF + exit codes
+  diff          Show new findings between two JSON reports
+  lock          Hash or verify package-lock.json / yarn.lock integrity
+  explain       Summarize findings in plain English
+  learn         Run app and record all signals as a known-good baseline
 
 Options:
-  --format <cli|json|html|sarif>  Output format (default: cli)
-  --output <file>                 Write report to file instead of stdout
-  -o <file>                       Alias for --output
-  --enforce                       Exit code 1 if any package is CRITICAL
-  --alert-webhook <url>           POST alert to webhook on CRITICAL findings
-  --config <path>                 Path to .bheeshmarc.json config file
-  --help, -h                      Show this help message
-  --version, -v                   Show version
+  --format <cli|json|html|sarif>         Output format (default: cli)
+  --output <file>                        Write report to file
+  -o <file>                              Alias for --output
+  --enforce                              Exit 1 if any package exceeds fail level
+  --fail-level <critical|high|medium|low>  Threshold for --enforce (default: critical)
+  --alert-webhook <url>                  POST alert to webhook on findings
+  --webhook-format <generic|slack|pagerduty|teams>  Webhook payload format
+  --baseline <file>                      Suppress known-good signals from report
+  --learn <file>                         Save all signals as baseline after run
+  --config <path>                        Path to .bheeshmarc.json config file
+  --help, -h                             Show this help message
+  --version, -v                          Show version
 
-Quick Start (30 seconds):
+Quick Start:
   npx bheeshma -- node app.js
   npx bheeshma install
-  npx bheeshma --format sarif --output results.sarif -- npm test
+  npx bheeshma learn baseline.json -- node app.js
+  npx bheeshma --baseline baseline.json -- node app.js
 
 CI/CD (GitHub Actions):
   - uses: bb1nfosec/bheeshma/.github/actions/bheeshma@main
@@ -136,6 +165,7 @@ CI/CD (GitHub Actions):
       command: 'npm test'
       fail-level: 'critical'
 
+<<<<<<< HEAD
 Install Monitoring:
   npx bheeshma install                      # Watch npm install behavior
   npx bheeshma install -- --save-dev axios   # Monitor installing a specific package
@@ -152,6 +182,9 @@ Security:
   Zero dependencies. Zero configuration required.
 
 For more information: https://github.com/bb1nfosec/bheeshma
+=======
+For more information: https://github.com/bbinfosec/bheeshma
+>>>>>>> 1995263 (feat: v1.1.0 — vm/crypto hooks, baseline mode, lockfile integrity, diff/explain CLI)
 `);
 }
 
@@ -178,18 +211,53 @@ async function main() {
     }
 
     if (options.subcommand === 'ci') {
-        // Delegate to bheeshma-ci.js
         const ciCli = path.resolve(__dirname, 'bheeshma-ci.js');
         const { spawn } = require('child_process');
-        const child = spawn(process.execPath, [ciCli, ...options.subArgs], {
-            stdio: 'inherit'
-        });
+        const child = spawn(process.execPath, [ciCli, ...options.subArgs], { stdio: 'inherit' });
         child.on('exit', (code) => process.exit(code || 0));
-        child.on('error', (err) => {
-            console.error('Error running CI mode:', err.message);
-            process.exit(1);
-        });
+        child.on('error', (err) => { console.error('Error running CI mode:', err.message); process.exit(1); });
         return;
+    }
+
+    if (options.subcommand === 'diff') {
+        const diffCli = path.resolve(__dirname, 'bheeshma-diff.js');
+        const { spawn } = require('child_process');
+        const child = spawn(process.execPath, [diffCli, ...options.subArgs], { stdio: 'inherit' });
+        child.on('exit', (code) => process.exit(code || 0));
+        child.on('error', (err) => { console.error('Error running diff mode:', err.message); process.exit(1); });
+        return;
+    }
+
+    if (options.subcommand === 'lock') {
+        const lockCli = path.resolve(__dirname, 'bheeshma-lock.js');
+        const { spawn } = require('child_process');
+        const child = spawn(process.execPath, [lockCli, ...options.subArgs], { stdio: 'inherit' });
+        child.on('exit', (code) => process.exit(code || 0));
+        child.on('error', (err) => { console.error('Error running lock mode:', err.message); process.exit(1); });
+        return;
+    }
+
+    if (options.subcommand === 'explain') {
+        const explainCli = path.resolve(__dirname, 'bheeshma-explain.js');
+        const { spawn } = require('child_process');
+        const child = spawn(process.execPath, [explainCli, ...options.subArgs], { stdio: 'inherit' });
+        child.on('exit', (code) => process.exit(code || 0));
+        child.on('error', (err) => { console.error('Error running explain mode:', err.message); process.exit(1); });
+        return;
+    }
+
+    if (options.subcommand === 'learn') {
+        // --learn mode: run with --learn <outputFile> injected as config
+        const learnArgs = options.subArgs;
+        let learnFile = '.bheeshma-baseline.json';
+        const dashIdx = learnArgs.indexOf('--');
+        const restArgs = dashIdx >= 0 ? learnArgs.slice(dashIdx + 1) : learnArgs;
+        if (learnArgs[0] && !learnArgs[0].startsWith('--')) {
+            learnFile = learnArgs[0];
+        }
+        // Rewrite as normal monitor with --learn option
+        process.argv = [process.argv[0], process.argv[1], '--learn', learnFile, '--', ...restArgs];
+        // Fall through to normal execution with learn mode handled below
     }
 
     // Validate options
@@ -208,9 +276,12 @@ async function main() {
 
     // Initialize BHEESHMA hooks
     console.error('[BHEESHMA] Initializing monitoring...');
-    const initResult = bheeshma.init({
-        configPath: options.configPath
-    });
+    const initConfig = { configPath: options.configPath };
+    if (options.baseline) initConfig.config = { baselineFile: options.baseline };
+    if (options.webhookFormat) {
+        initConfig.config = { ...(initConfig.config || {}), webhookFormat: options.webhookFormat };
+    }
+    const initResult = bheeshma.init(initConfig);
 
     if (!initResult.success) {
         console.error('[BHEESHMA] Warning: Some hooks failed to install');
@@ -278,9 +349,20 @@ async function main() {
             console.log(report);
         }
 
-        // Enforcement mode: exit(1) if any package is CRITICAL
+        // Learn mode: save baseline from observed signals
+        if (options.learn) {
+            try {
+                const { captureBaseline } = require('../src/baseline/baselineManager');
+                const result = captureBaseline(bheeshma.getSignals(), options.learn);
+                console.error(`[BHEESHMA] Baseline saved: ${result.saved} behaviors → ${result.path}`);
+            } catch (err) {
+                console.error(`[BHEESHMA] Could not save baseline: ${err.message}`);
+            }
+        }
+
+        // Enforcement mode: exit(1) if any package exceeds fail level
         if (options.enforce) {
-            const enforcement = bheeshma.enforcePolicy();
+            const enforcement = bheeshma.enforcePolicy({ failLevel: options.failLevel || 'critical' });
             if (!enforcement.passed) {
                 console.error(`\n[BHEESHMA] ${enforcement.message}`);
                 for (const pkg of enforcement.criticalPackages) {

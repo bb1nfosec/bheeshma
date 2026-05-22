@@ -2,6 +2,7 @@
 
 All notable changes to BHEESHMA will be documented in this file.
 
+<<<<<<< HEAD
 ## [2.1.0] - 2026-05-16
 
 ### Fixed
@@ -26,6 +27,86 @@ All notable changes to BHEESHMA will be documented in this file.
 
 - **Version**: 1.0.0 → 2.1.0 (supersedes stale npm v2.0.0)
 - **Homepage**: Points to Wall of Shame dashboard at `bb1nfosec.github.io/bheeshma`
+=======
+## [1.1.0] - 2026-05-17
+
+### Added
+
+#### New Runtime Hooks
+- **VM hook** (`src/hooks/vmHook.js`): Detects `vm.runInNewContext()`, `vm.runInThisContext()`, `vm.runInContext()`, `vm.compileFunction()`, `new vm.Script()` — closes hook-evasion via fresh V8 contexts. Emits `VM_EXEC` signal.
+- **Crypto hook** (`src/hooks/cryptoHook.js`): Monitors `createCipheriv`, `createDecipheriv`, `createHash`, `createHmac`, `randomBytes`, `randomFill`, `pbkdf2`, `scrypt` — flags unexpected cipher/decipher ops indicating embedded encrypted payloads. Emits `CRYPTO_OP` signal.
+- **IPC/Unix socket detection**: `net.connect()` now handles string path args (e.g. `/var/run/docker.sock`).
+
+#### New Signal Types
+- `VM_EXEC` (weight: 20) — vm module code execution
+- `CRYPTO_OP` (weight: 8) — cryptographic operations
+- `HOOK_TAMPER` (weight: 100) — active replacement of bheeshma's hook wrappers
+- `PROTO_POLLUTION` (weight: 30) — `Object.prototype` / `__proto__` mutation (static detection)
+
+#### Behavioral Baseline Mode
+- **`src/baseline/baselineManager.js`**: Capture, load, filter, and diff behavioral baselines.
+- **`--learn <file>` CLI flag**: Run the app, save all signals as known-good baseline.
+- **`--baseline <file>` CLI flag**: Suppress known-good signals from scoring so only new behaviors trigger alerts. Eliminates false-positive fatigue on apps with many legitimate network-calling dependencies.
+
+#### Hook Tamper Detection
+- After all hooks are installed, `src/index.js` snapshots each wrapper reference.
+- At `generateReport()` time, stale references inject `HOOK_TAMPER` signals automatically.
+- Catches malicious packages that overwrite `require('fs').readFile` or `require('net').connect`.
+
+#### Sampling Mode
+- `performance.sampleRate` config key (0.0–1.0, default 1.0).
+- First occurrence of any dedup key is always recorded; subsequent occurrences are probabilistically dropped. Reduces memory pressure from high-frequency duplicate signals (e.g., a package calling `readFile` thousands of times per second).
+
+#### Persistent Signal Log
+- `logging.logFile` config key: append every accepted signal as NDJSON to a file.
+- Survives process crashes. Useful for auditing long-running servers post-incident.
+
+#### CycloneDX SBOM Output
+- **`src/output/sbomFormatter.js`**: Generates CycloneDX 1.4 JSON SBOMs from observed packages.
+- Includes purl, bom-ref, bheeshma trust score, risk level, signal counts, and per-signal-type breakdown as CycloneDX properties.
+- Sorted by trust score ascending (most risky first).
+- Compliant with US EO 14028 and EU Cyber Resilience Act.
+
+#### Structured Webhook Payloads
+- `webhookFormat` config key: `generic` | `slack` | `pagerduty` | `teams`.
+- **`--webhook-format <format>` CLI flag** for per-run override.
+- Slack: Block Kit message with header + section + context blocks.
+- PagerDuty: Events API v2 `trigger` payload.
+- Microsoft Teams: Adaptive Card (MessageCard format).
+
+#### Three New CLI Tools
+- **`bheeshma-diff`** (`bin/bheeshma-diff.js`): Compare two JSON reports side-by-side. Shows new packages and score regressions. Exit 1 if new findings. Supports `--format json` for machine-readable output.
+- **`bheeshma-lock`** (`bin/bheeshma-lock.js`): SHA-256 lockfile integrity checker. `--save` records hashes of all lockfiles; `--verify` detects tampering. Supports `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `npm-shrinkwrap.json`.
+- **`bheeshma-explain`** (`bin/bheeshma-explain.js`): Plain-English explanation of a JSON report. Describes what each package did, why it's suspicious, and recommended remediation. Supports `--package`, `--min-risk` filters.
+
+#### Enhanced Pattern Detection
+- **Temporal correlation** in data exfiltration: measures time gap between sensitive file read and HTTP request. ≤2s = CRITICAL, ≤30s = HIGH, >30s or no timing = MEDIUM.
+- **Context-aware safe packages**: `KNOWN_SAFE_CONTEXTS` map downgrades severity for well-known build tools (jest, webpack, typescript, esbuild, vite, babel, etc.).
+- **Prototype pollution static patterns** in obfuscation detector: `Object.prototype.x =`, `__proto__ =`, `constructor.prototype.x =`.
+- **10 obfuscation patterns** (up from 8): added `CHAR_CODE_ARRAY` (long integer arrays) and `PROCESS_BINDING` (direct Node.js C++ internal access).
+
+#### DNS Hook Expansion
+- Added 8 more `dns` module methods: `resolveMx`, `resolveCname`, `resolveNs`, `resolveSrv`, `resolveCaa`, `resolveNaptr`, `resolvePtr`, `reverse`.
+- Added full `dns.promises.*` coverage — Node 10+ async DNS API now monitored.
+
+#### Attribution Accuracy
+- Improved stack frame extraction with dual-regex approach.
+- Self-exclusion: signals are never attributed to `bheeshma` itself when installed as a package in the monitored project.
+
+### Changed
+- **`src/index.js`**: Wired vmHook + cryptoHook into init/teardown, added hook tamper detection, sampling, persistent log, baseline filtering, multi-format webhook support.
+- **`bin/bheeshma.js`**: Added `diff`, `lock`, `explain`, `learn` subcommands; `--fail-level`, `--baseline`, `--learn`, `--webhook-format` flags; updated help text.
+- **`package.json`**: Added 3 new bin entries (`bheeshma-diff`, `bheeshma-lock`, `bheeshma-explain`).
+- **`src/config/schema.js`**: Added `hooks.vm`, `hooks.crypto`, `performance.sampleRate`, `logging.logFile`, `baselineFile`, `webhookFormat` with full validation.
+- **`src/signals/signalTypes.js`**: Added `VM_EXEC`, `CRYPTO_OP`, `HOOK_TAMPER`, `PROTO_POLLUTION` signal types.
+- **`src/scoring/trustScore.js`**: Added risk weights for new signal types; added `findViolatingPackages(scores, failLevel)` for configurable enforcement level.
+
+### Fixed
+- **ESM loader crash** (`src/esm-loader.mjs`): `Identifier 'resolve' has already been declared` — complete rewrite using `createRequire(import.meta.url)`.
+- **Worker bootstrap path** (`src/worker-bootstrap.js`): `require('../index')` resolved to non-existent repo root — fixed to `require('./index')`.
+- **SARIF function name** (`bin/bheeshma-ci.js`, `bin/bheeshma-install.js`): `formatSarifReport is not a function` — fixed import to `formatReport`.
+- **`enforcePolicy()` fail levels**: Only returned CRITICAL packages regardless of `--fail-level` — rewrote with `findViolatingPackages()` and `RISK_PRIORITY` map.
+>>>>>>> 1995263 (feat: v1.1.0 — vm/crypto hooks, baseline mode, lockfile integrity, diff/explain CLI)
 
 ---
 

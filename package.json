@@ -7,7 +7,10 @@
   "bin": {
     "bheeshma": "bin/bheeshma.js",
     "bheeshma-ci": "bin/bheeshma-ci.js",
-    "bheeshma-install": "bin/bheeshma-install.js"
+    "bheeshma-install": "bin/bheeshma-install.js",
+    "bheeshma-diff": "bin/bheeshma-diff.js",
+    "bheeshma-lock": "bin/bheeshma-lock.js",
+    "bheeshma-explain": "bin/bheeshma-explain.js"
   },
   "exports": {
     ".": {

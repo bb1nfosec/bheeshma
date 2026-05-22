@@ -13,7 +13,8 @@ const {
     DATA_EXFILTRATION_PATTERNS,
     BACKDOOR_PATTERNS,
     CREDENTIAL_THEFT_PATTERNS,
-    TYPOSQUAT_PATTERNS
+    TYPOSQUAT_PATTERNS,
+    KNOWN_SAFE_CONTEXTS
 } = require('./malwareSignatures');
 
 /**
@@ -96,12 +97,13 @@ function detectCryptoMiners(signals) {
         // Check for miner processes
         if (signal.type === SignalType.SHELL_EXEC) {
             const command = signal.metadata.command?.toLowerCase() || '';
+            const safeShell = isKnownSafeContext(signal.package, 'shellExec');
 
             for (const minerProcess of CRYPTO_MINER_PATTERNS.processes) {
                 if (command.includes(minerProcess.toLowerCase())) {
                     indicators.push({
                         type: 'CRYPTO_MINER_PROCESS',
-                        severity: 'CRITICAL',
+                        severity: safeShell ? 'MEDIUM' : 'CRITICAL',
                         package: signal.package,
                         indicator: minerProcess,
                         signal
@@ -149,36 +151,58 @@ function detectCryptoMiners(signals) {
 }
 
 /**
- * Detect data exfiltration patterns
- * 
- * @param {Array} signals - Signals to analyze
- * @returns {Array} Detected exfiltration indicators
+ * Check whether a package is a known-safe context for a given behavior category.
+ *
+ * @param {string} packageName
+ * @param {'shellExec'|'fsRead'|'credentialFiles'|'httpRequest'} category
+ * @returns {boolean}
+ */
+function isKnownSafeContext(packageName, category) {
+    if (!packageName) return false;
+    const list = KNOWN_SAFE_CONTEXTS[category] || [];
+    const nameLower = packageName.toLowerCase();
+    return list.some(safe => {
+        if (safe.endsWith('/*')) return nameLower.startsWith(safe.slice(0, -2));
+        return nameLower === safe || nameLower.startsWith(safe + '/');
+    });
+}
+
+/**
+ * Detect data exfiltration patterns with temporal correlation.
+ *
+ * Temporal analysis: if a package reads a sensitive file AND makes an HTTP
+ * request within a short window, confidence in exfiltration is very high.
+ *   ≤ 2 000 ms apart → CRITICAL (near-simultaneous = intentional exfil)
+ *   ≤ 30 000 ms apart → HIGH
+ *   > 30 000 ms or no timing data → MEDIUM (correlation exists but timing unclear)
+ *
+ * @param {Array} signals
+ * @returns {Array} Detected indicators
  */
 function detectDataExfiltration(signals) {
     const indicators = [];
 
-    // Track which packages read sensitive files
+    // Track sensitive file reads per package: { file, signal, tsMs }
     const sensitiveFileReads = new Map();
 
     for (const signal of signals) {
-        // Detect sensitive file reads
         if (signal.type === SignalType.FS_READ) {
-            const path = signal.metadata.path || '';
-
+            const filePath = signal.metadata.path || '';
             for (const sensitiveFile of DATA_EXFILTRATION_PATTERNS.sensitiveFiles) {
-                if (path.includes(sensitiveFile)) {
-                    if (!sensitiveFileReads.has(signal.package)) {
-                        sensitiveFileReads.set(signal.package, []);
-                    }
-                    sensitiveFileReads.get(signal.package).push({ file: sensitiveFile, signal });
+                if (filePath.includes(sensitiveFile)) {
+                    if (!sensitiveFileReads.has(signal.package)) sensitiveFileReads.set(signal.package, []);
+                    sensitiveFileReads.get(signal.package).push({
+                        file: sensitiveFile,
+                        signal,
+                        tsMs: signal.timestamp ? new Date(signal.timestamp).getTime() : null
+                    });
                 }
             }
         }
 
-        // Detect exfiltration to known services
+        // Direct exfiltration service detection (always CRITICAL)
         if (signal.type === SignalType.HTTP_REQUEST || signal.type === SignalType.HTTPS_REQUEST) {
-            const url = signal.metadata.url?.toLowerCase() || '';
-
+            const url = (signal.metadata.url || '').toLowerCase();
             for (const service of DATA_EXFILTRATION_PATTERNS.exfiltrationServices) {
                 if (url.includes(service)) {
                     indicators.push({
@@ -193,22 +217,40 @@ function detectDataExfiltration(signals) {
         }
     }
 
-    // If a package read sensitive files AND made HTTP requests, that's highly suspicious
+    // Temporal correlation: sensitive read + HTTP request from the same package
     for (const [packageName, fileReads] of sensitiveFileReads.entries()) {
-        const packageHasHttpRequest = signals.some(s =>
+        const httpSignals = signals.filter(s =>
             s.package === packageName &&
             (s.type === SignalType.HTTP_REQUEST || s.type === SignalType.HTTPS_REQUEST)
         );
+        if (httpSignals.length === 0) continue;
 
-        if (packageHasHttpRequest) {
-            indicators.push({
-                type: 'SENSITIVE_FILE_PLUS_HTTP',
-                severity: 'CRITICAL',
-                package: packageName,
-                indicator: `Read ${fileReads.length} sensitive file(s) and made HTTP request`,
-                details: fileReads.map(fr => fr.file)
-            });
+        // Find the minimum time gap between any sensitive read and any HTTP request
+        let minGapMs = Infinity;
+        for (const read of fileReads) {
+            if (read.tsMs === null) continue;
+            for (const httpSig of httpSignals) {
+                if (!httpSig.timestamp) continue;
+                const gap = Math.abs(new Date(httpSig.timestamp).getTime() - read.tsMs);
+                if (gap < minGapMs) minGapMs = gap;
+            }
         }
+
+        let severity = 'MEDIUM';
+        let temporalNote = '';
+        if (minGapMs <= 2000)       { severity = 'CRITICAL'; temporalNote = ` within ${minGapMs}ms`; }
+        else if (minGapMs <= 30000) { severity = 'HIGH';     temporalNote = ` within ${Math.round(minGapMs / 1000)}s`; }
+        else if (minGapMs === Infinity) { severity = 'MEDIUM'; temporalNote = ''; }
+        else { severity = 'MEDIUM'; temporalNote = ' (>30s gap)'; }
+
+        indicators.push({
+            type: 'SENSITIVE_FILE_PLUS_HTTP',
+            severity,
+            package: packageName,
+            indicator: `Read ${fileReads.length} sensitive file(s) and made HTTP request${temporalNote}`,
+            details: fileReads.map(r => r.file),
+            minGapMs: minGapMs === Infinity ? null : minGapMs
+        });
     }
 
     return indicators;
@@ -224,12 +266,13 @@ function detectBackdoors(signals) {
     const indicators = [];
 
     for (const signal of signals) {
-        // Check for reverse shell commands
         if (signal.type === SignalType.SHELL_EXEC) {
             const command = signal.metadata.command || '';
+            const safeShell = isKnownSafeContext(signal.package, 'shellExec');
 
             for (const shellPattern of BACKDOOR_PATTERNS.reverseShellCommands) {
                 if (command.includes(shellPattern)) {
+                    // Reverse shell is always CRITICAL — no safe context override
                     indicators.push({
                         type: 'REVERSE_SHELL',
                         severity: 'CRITICAL',
@@ -240,12 +283,11 @@ function detectBackdoors(signals) {
                 }
             }
 
-            // Check for remote access tools
             for (const ratTool of BACKDOOR_PATTERNS.ratTools) {
                 if (command.toLowerCase().includes(ratTool)) {
                     indicators.push({
                         type: 'REMOTE_ACCESS_TOOL',
-                        severity: 'HIGH',
+                        severity: safeShell ? 'LOW' : 'HIGH',
                         package: signal.package,
                         indicator: ratTool,
                         signal
@@ -254,10 +296,8 @@ function detectBackdoors(signals) {
             }
         }
 
-        // Check for suspicious listening ports
         if (signal.type === SignalType.NET_CONNECT) {
             const port = signal.metadata.port;
-
             if (BACKDOOR_PATTERNS.suspiciousPorts.includes(port)) {
                 indicators.push({
                     type: 'SUSPICIOUS_PORT',

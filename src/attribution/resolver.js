@@ -23,14 +23,45 @@ const path = require('path');
 const packageCache = new Map();
 
 /**
+ * Regex patterns for extracting file paths from stack frames.
+ * Handles both:
+ *   at FunctionName (/path/to/file.js:10:5)
+ *   at /path/to/file.js:10:5
+ *   at async FunctionName (/path/to/file.js:10:5)
+ */
+const FRAME_PATH_RE = [
+    /\((.+?):\d+:\d+\)/,           // (path:line:col)
+    /^\s+at\s+([^\s(][^:]*?):\d+:\d+\s*$/, // at path:line:col  (no parens, no fn name)
+];
+
+/**
+ * Extract the file path from a single stack frame line.
+ *
+ * @param {string} line - One line from a stack trace
+ * @returns {string|null} Absolute file path or null
+ */
+function extractPathFromFrame(line) {
+    for (const re of FRAME_PATH_RE) {
+        const m = line.match(re);
+        if (m && m[1] && !m[1].startsWith('node:')) {
+            return m[1];
+        }
+    }
+    return null;
+}
+
+/**
  * Extract npm package attribution from a stack trace string.
- * 
+ *
  * Attribution strategy: Walk the ENTIRE call stack and find the OUTERMOST
- * node_modules entry (closest to user code), not the first one. This prevents
- * mislabeling transitive dependency calls — if lodash calls something-evil,
- * the signal gets attributed to something-evil (the user-installed dep), not
- * lodash (the intermediary).
- * 
+ * node_modules entry (closest to user code). This correctly attributes
+ * signals to the user-installed package even when it delegates work to
+ * transitive dependencies — e.g. something-evil → lodash → http.request
+ * is attributed to something-evil, not lodash.
+ *
+ * Self-exclusion: frames belonging to bheeshma itself are skipped so
+ * bheeshma never attributes signals to itself when installed as a package.
+ *
  * @param {string} stack - Raw stack trace string (from new Error().stack)
  * @returns {object|null} { name, version, path } or null if first-party
  */
@@ -44,17 +75,16 @@ function getPackageFromStack(stack) {
         let lastAttribution = null;
 
         // Walk ALL frames and find the LAST node_modules entry
-        // (closest to user code, outermost in the dependency tree)
+        // (closest to user code = outermost in the dependency tree)
         for (const line of stackLines) {
-            const match = line.match(/\((.+?):\d+:\d+\)/);
-            if (!match) continue;
+            const filePath = extractPathFromFrame(line);
+            if (!filePath) continue;
 
-            const filePath = match[1];
             const nodeModulesIndex = filePath.indexOf('node_modules');
             if (nodeModulesIndex === -1) continue;
 
             const packageInfo = extractPackageInfo(filePath, nodeModulesIndex);
-            if (packageInfo) {
+            if (packageInfo && packageInfo.name !== 'bheeshma') {
                 lastAttribution = packageInfo;
             }
         }

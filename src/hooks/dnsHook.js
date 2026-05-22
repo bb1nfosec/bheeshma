@@ -1,11 +1,18 @@
 /**
  * BHEESHMA DNS Monitoring Hook
- * 
- * Security: Monitors DNS resolution to detect DNS tunneling and data exfiltration.
- * DNS tunneling encodes data in subdomains (e.g., c2-payload.evil.io) and bypasses
- * HTTP-level monitoring because it happens at the resolver level before TCP.
- * 
- * Wraps: dns.lookup, dns.resolve, dns.resolve4, dns.resolve6, dns.resolveTxt
+ *
+ * Monitors DNS resolution to detect DNS tunneling and data exfiltration.
+ * DNS tunneling encodes data in subdomains (e.g. c2-payload.evil.io) and
+ * bypasses HTTP-level monitoring because it occurs at the resolver level.
+ *
+ * Covers both callback-based dns.* API and the promises-based dns.promises.*
+ * API (Node 10+), which are separate JS implementations over the same C++ bindings.
+ *
+ * Wrapped functions:
+ *   Callback: lookup, resolve, resolve4, resolve6, resolveTxt, resolveMx,
+ *             resolveCname, resolveNs, resolveSrv, resolveCaa, resolveNaptr,
+ *             resolvePtr, reverse
+ *   Promises: same set via dns.promises.*
  */
 
 'use strict';
@@ -18,19 +25,12 @@ let signalCollector = [];
 let hookConfig = null;
 let isHookInstalled = false;
 
-const originalFunctions = {
-    lookup: null,
-    resolve: null,
-    resolve4: null,
-    resolve6: null,
-    resolveTxt: null
-};
+const originalCallbacks = {};
+const originalPromises = {};
 
 /**
- * Known exfiltration DNS services
- * NOTE: ngrok.io and localtunnel.me are EXCLUDED — they are legitimate
- * dev tools, not exfil services. canarytokens.com is EXCLUDED — it's a
- * DEFENSIVE tool, not an attack tool.
+ * Known exfiltration DNS services.
+ * ngrok.io, localtunnel.me, canarytokens.com excluded — legitimate dev/defensive tools.
  */
 const KNOWN_EXFIL_DOMAINS = [
     'dnshook.site',
@@ -40,9 +40,29 @@ const KNOWN_EXFIL_DOMAINS = [
 ];
 
 /**
- * Install DNS monitoring hook
- * 
- * @param {Array} collector - Shared signal collector
+ * Callback-based DNS functions to hook.
+ * 'reverse' takes an IP address as first arg — still worth monitoring.
+ */
+const CALLBACK_FUNCTIONS = [
+    'lookup',
+    'resolve',
+    'resolve4',
+    'resolve6',
+    'resolveTxt',
+    'resolveMx',
+    'resolveCname',
+    'resolveNs',
+    'resolveSrv',
+    'resolveCaa',
+    'resolveNaptr',
+    'resolvePtr',
+    'reverse'
+];
+
+/**
+ * Install DNS monitoring hooks (callback + promises API).
+ *
+ * @param {object} collector - Signal recorder (has .push())
  * @param {object} config - Bheeshma configuration
  * @returns {boolean} True if installed successfully
  */
@@ -53,12 +73,17 @@ function install(collector, config) {
         signalCollector = collector;
         hookConfig = config;
 
-        // Hook each DNS function
-        hookDnsFunction('lookup');
-        hookDnsFunction('resolve');
-        hookDnsFunction('resolve4');
-        hookDnsFunction('resolve6');
-        hookDnsFunction('resolveTxt');
+        // Hook callback-based API
+        for (const fnName of CALLBACK_FUNCTIONS) {
+            hookCallbackFunction(fnName);
+        }
+
+        // Hook dns.promises API (Node 10+)
+        if (dns.promises && typeof dns.promises === 'object') {
+            for (const fnName of CALLBACK_FUNCTIONS) {
+                hookPromiseFunction(fnName);
+            }
+        }
 
         isHookInstalled = true;
         return true;
@@ -69,15 +94,13 @@ function install(collector, config) {
 }
 
 /**
- * Hook a single DNS function
- * 
- * @param {string} fnName - DNS function name
+ * Hook one callback-based dns.* function.
  */
-function hookDnsFunction(fnName) {
+function hookCallbackFunction(fnName) {
     if (typeof dns[fnName] !== 'function') return;
-    if (originalFunctions[fnName]) return; // Already hooked
+    if (originalCallbacks[fnName]) return;
 
-    originalFunctions[fnName] = dns[fnName];
+    originalCallbacks[fnName] = dns[fnName];
 
     dns[fnName] = function (...args) {
         try {
@@ -85,41 +108,57 @@ function hookDnsFunction(fnName) {
             if (typeof hostname === 'string' && hostname.length > 0) {
                 emitDnsSignal(hostname, fnName);
             }
-        } catch (err) {
+        } catch (_err) {
             // Fail-safe
         }
-
-        return originalFunctions[fnName].apply(this, args);
+        return originalCallbacks[fnName].apply(this, args);
     };
 
-    Object.defineProperty(dns[fnName], 'name', {
+    Object.defineProperty(dns[fnName], 'name', { value: fnName, configurable: true });
+}
+
+/**
+ * Hook one dns.promises.* function.
+ */
+function hookPromiseFunction(fnName) {
+    if (!dns.promises || typeof dns.promises[fnName] !== 'function') return;
+    if (originalPromises[fnName]) return;
+
+    originalPromises[fnName] = dns.promises[fnName];
+
+    dns.promises[fnName] = async function (...args) {
+        try {
+            const hostname = args[0];
+            if (typeof hostname === 'string' && hostname.length > 0) {
+                emitDnsSignal(hostname, `promises.${fnName}`);
+            }
+        } catch (_err) {
+            // Fail-safe
+        }
+        return originalPromises[fnName].apply(this, args);
+    };
+
+    Object.defineProperty(dns.promises[fnName], 'name', {
         value: fnName,
         configurable: true
     });
 }
 
 /**
- * Emit a DNS query signal with tunneling/exfil analysis
- * 
- * @param {string} hostname - Queried hostname
- * @param {string} function_ - DNS function that was called
+ * Emit a DNS_QUERY signal with tunneling/exfil analysis.
  */
-function emitDnsSignal(hostname, function_) {
+function emitDnsSignal(hostname, calledFunction) {
     try {
         const attribution = resolveCurrentStack();
         if (!attribution) return;
-
-        // Note: Whitelist checking is handled centrally by the signal recorder
-        // in index.js (createSignalRecorder) — no need to check here.
 
         const analysis = analyzeHostname(hostname);
 
         const signal = createSignal(
             SignalType.DNS_QUERY,
             {
-                hostname: hostname,
-                function: function_,
-                // Analysis results
+                hostname,
+                function: calledFunction,
                 isIpAddress: analysis.isIpAddress,
                 suspiciousSubdomainLength: analysis.suspiciousSubdomainLength,
                 highEntropySubdomain: analysis.highEntropySubdomain,
@@ -134,23 +173,24 @@ function emitDnsSignal(hostname, function_) {
         );
 
         signalCollector.push(signal);
-    } catch (err) {
+    } catch (_err) {
         // Defensive
     }
 }
 
 /**
- * Analyze a hostname for DNS tunneling and exfiltration patterns
- * 
+ * Analyze a hostname for DNS tunneling and exfiltration patterns.
+ *
  * Checks:
- * 1. Abnormally long subdomains (>50 chars, indicating encoded data)
- * 2. High-entropy subdomains (Base64/hex encoded data)
- * 3. Known exfiltration services
- * 4. Base64 character patterns in domain labels
- * 5. Hex-encoded subdomains
- * 
+ * 1. IP address (not useful for tunneling detection — return early)
+ * 2. Known exfil services (exact match or *.service)
+ * 3. Abnormally long subdomain labels (>50 chars = likely encoded data)
+ * 4. High Shannon entropy (>4.0 bits = likely Base64/hex encoded payload)
+ * 5. Base64 character set in subdomain label (length >16)
+ * 6. Hex-encoded subdomain label (length >20)
+ *
  * @param {string} hostname - Hostname to analyze
- * @returns {object} Analysis results
+ * @returns {object} Analysis result with indicators array
  */
 function analyzeHostname(hostname) {
     const analysis = {
@@ -163,17 +203,13 @@ function analyzeHostname(hostname) {
         indicators: []
     };
 
-    // Check if it's an IP address (not useful for DNS tunneling detection)
-    const ipPattern = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
-    if (ipPattern.test(hostname)) {
+    // IPv4 — skip tunneling analysis
+    if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) {
         analysis.isIpAddress = true;
         return analysis;
     }
 
-    // Extract subdomain parts
-    const parts = hostname.split('.');
-
-    // Check known exfil services (match against domain end, not substring)
+    // Known exfil services (full-domain or subdomain match)
     for (const exfilDomain of KNOWN_EXFIL_DOMAINS) {
         if (hostname === exfilDomain || hostname.endsWith('.' + exfilDomain)) {
             analysis.knownExfilService = true;
@@ -181,35 +217,33 @@ function analyzeHostname(hostname) {
         }
     }
 
-    // Analyze each subdomain label
-    for (let i = 0; i < parts.length - 1; i++) { // Skip TLD
+    const parts = hostname.split('.');
+
+    // Analyze each label except the TLD
+    for (let i = 0; i < parts.length - 1; i++) {
         const label = parts[i];
 
-        // Check for abnormally long subdomains (>50 chars = likely encoded data)
         if (label.length > 50) {
             analysis.suspiciousSubdomainLength = true;
-            analysis.indicators.push(`Abnormally long subdomain: ${label.length} chars`);
+            analysis.indicators.push(`Abnormally long subdomain label: ${label.length} chars`);
         }
 
-        // Check for high entropy (likely encoded data)
         if (label.length > 10) {
-            const entropy = calculateShannonEntropy(label);
+            const entropy = shannonEntropy(label);
             if (entropy > 4.0) {
                 analysis.highEntropySubdomain = true;
                 analysis.indicators.push(`High-entropy subdomain (${entropy.toFixed(2)} bits)`);
             }
         }
 
-        // Check for Base64 patterns in subdomains
         if (label.length > 16 && /^[A-Za-z0-9+/=]+$/.test(label)) {
             analysis.base64InSubdomain = true;
-            analysis.indicators.push('Base64-like characters in subdomain');
+            analysis.indicators.push('Base64-like characters in subdomain label');
         }
 
-        // Check for hex-encoded subdomains (long hex strings)
         if (label.length > 20 && /^[0-9a-fA-F]+$/.test(label)) {
             analysis.hexInSubdomain = true;
-            analysis.indicators.push('Hex-encoded subdomain');
+            analysis.indicators.push('Hex-encoded subdomain label');
         }
     }
 
@@ -217,42 +251,41 @@ function analyzeHostname(hostname) {
 }
 
 /**
- * Calculate Shannon entropy of a string
- * Higher entropy = more random/encoded = more suspicious
- * 
- * @param {string} str - Input string
- * @returns {number} Shannon entropy in bits
+ * Calculate Shannon entropy (bits) of a string.
+ * Higher entropy → more random → more likely encoded data.
+ *
+ * @param {string} str
+ * @returns {number}
  */
-function calculateShannonEntropy(str) {
+function shannonEntropy(str) {
     if (!str || str.length === 0) return 0;
-
     const freq = {};
-    for (const char of str) {
-        freq[char] = (freq[char] || 0) + 1;
-    }
-
+    for (const ch of str) freq[ch] = (freq[ch] || 0) + 1;
     let entropy = 0;
     const len = str.length;
     for (const count of Object.values(freq)) {
         const p = count / len;
         entropy -= p * Math.log2(p);
     }
-
     return entropy;
 }
 
 /**
- * Uninstall DNS hook
- * 
+ * Uninstall DNS hooks (both callback and promises API).
+ *
  * @returns {boolean} Success
  */
 function uninstall() {
     try {
         if (!isHookInstalled) return true;
 
-        for (const [fnName, originalFn] of Object.entries(originalFunctions)) {
-            if (originalFn) {
-                dns[fnName] = originalFn;
+        for (const [fnName, originalFn] of Object.entries(originalCallbacks)) {
+            if (originalFn) dns[fnName] = originalFn;
+        }
+
+        if (dns.promises) {
+            for (const [fnName, originalFn] of Object.entries(originalPromises)) {
+                if (originalFn) dns.promises[fnName] = originalFn;
             }
         }
 
@@ -260,12 +293,9 @@ function uninstall() {
         signalCollector = null;
         hookConfig = null;
         return true;
-    } catch (err) {
+    } catch (_err) {
         return false;
     }
 }
 
-module.exports = {
-    install,
-    uninstall
-};
+module.exports = { install, uninstall };

@@ -15,7 +15,9 @@ const netHook = require('./hooks/netHook');
 const childProcHook = require('./hooks/childProcHook');
 const httpHook = require('./hooks/httpHook');
 const dnsHook = require('./hooks/dnsHook');
-const { calculateAllScores, findCriticalPackages, getRiskLevel } = require('./scoring/trustScore');
+const vmHook = require('./hooks/vmHook');
+const cryptoHook = require('./hooks/cryptoHook');
+const { calculateAllScores, findCriticalPackages, findViolatingPackages, getRiskLevel } = require('./scoring/trustScore');
 const cliFormatter = require('./output/cliFormatter');
 const jsonFormatter = require('./output/jsonFormatter');
 const htmlFormatter = require('./output/htmlFormatter');
@@ -30,6 +32,7 @@ const { mergeConfig, validateConfig } = require('./config/schema');
 const detector = require('./obfuscation/detector');
 const scanPackage = detector.scanPackage;
 const clearScanCache = detector.clearScanCache;
+const { loadBaseline, filterBaselineSignals } = require('./baseline/baselineManager');
 
 /**
  * Global signal collector
@@ -52,6 +55,33 @@ let currentConfig = null;
  * Merges signals from worker threads into the main store
  */
 let workerSignalHandler = null;
+
+/**
+ * Loaded behavioral baseline (from baselineManager.loadBaseline).
+ * When non-null, matching signals are suppressed before scoring.
+ */
+let currentBaseline = null;
+
+/**
+ * Persistent log write stream (fs.WriteStream for NDJSON append).
+ * null = disabled.
+ */
+let logStream = null;
+
+/**
+ * Dedup key → seen count, for sampling support.
+ * Tracks how many times each unique behavior was seen so we can sample
+ * duplicate signals when performance.sampleRate < 1.
+ */
+const seenDedupKeys = new Map();
+
+/**
+ * Snapshot of wrapped hook functions for tamper detection.
+ * Maps 'module.method' → reference to our wrapper at install time.
+ * If the reference no longer matches at report time, a HOOK_TAMPER
+ * signal is injected.
+ */
+const hookSnapshots = new Map();
 
 /**
  * Signal recorder proxy — passed to hooks instead of the raw array.
@@ -147,6 +177,40 @@ function init(options = {}) {
         failed.push('dnsHook');
     }
 
+    if (currentConfig.hooks.vm && vmHook.install(recorder, currentConfig)) {
+        installed.push('vmHook');
+    } else if (currentConfig.hooks.vm) {
+        failed.push('vmHook');
+    }
+
+    if (currentConfig.hooks.crypto && cryptoHook.install(recorder, currentConfig)) {
+        installed.push('cryptoHook');
+    } else if (currentConfig.hooks.crypto) {
+        failed.push('cryptoHook');
+    }
+
+    // Snapshot hook references for tamper detection
+    snapshotHooks();
+
+    // Load behavioral baseline if configured
+    if (currentConfig.baselineFile) {
+        currentBaseline = loadBaseline(currentConfig.baselineFile);
+        if (currentBaseline) {
+            console.error(`[BHEESHMA] Baseline loaded: ${Object.keys(currentBaseline.entries).length} known behaviors`);
+        }
+    }
+
+    // Open persistent log file if configured
+    if (currentConfig.logging && currentConfig.logging.logFile) {
+        try {
+            const fs = require('fs');
+            logStream = fs.createWriteStream(currentConfig.logging.logFile, { flags: 'a', encoding: 'utf8' });
+            logStream.on('error', () => { logStream = null; });
+        } catch (err) {
+            console.warn(`[BHEESHMA] Could not open log file: ${err.message}`);
+        }
+    }
+
     // Set up worker thread signal collection if available
     setupWorkerSignalCollection();
 
@@ -158,6 +222,50 @@ function init(options = {}) {
         failed: failed.length > 0 ? failed : undefined,
         config: currentConfig
     };
+}
+
+/**
+ * Snapshot key hook wrappers immediately after installation.
+ * Called once by init() after all hooks are installed.
+ */
+function snapshotHooks() {
+    try {
+        hookSnapshots.clear();
+        hookSnapshots.set('fs.readFile',     require('fs').readFile);
+        hookSnapshots.set('fs.writeFile',    require('fs').writeFile);
+        hookSnapshots.set('net.connect',     require('net').connect);
+        hookSnapshots.set('http.request',    require('http').request);
+        hookSnapshots.set('https.request',   require('https').request);
+        hookSnapshots.set('dns.lookup',      require('dns').lookup);
+    } catch (_) {}
+}
+
+/**
+ * Check if any hooked functions have been replaced since installation.
+ * Injects HOOK_TAMPER signals for each detected replacement.
+ *
+ * @param {Array} targetSignals - Signal array to push tamper signals into
+ */
+function checkHookTamper(targetSignals) {
+    if (hookSnapshots.size === 0) return;
+
+    const { createSignal, SignalType } = require('./signals/signalTypes');
+
+    for (const [key, snapshot] of hookSnapshots.entries()) {
+        try {
+            const [moduleName, fnName] = key.split('.');
+            const current = require(moduleName)[fnName];
+            if (current !== snapshot) {
+                targetSignals.push(createSignal(
+                    SignalType.HOOK_TAMPER,
+                    { hook: key, description: `Hook ${key} was replaced after bheeshma installation` },
+                    'unknown',
+                    'unknown',
+                    new Error().stack
+                ));
+            }
+        } catch (_) {}
+    }
 }
 
 /**
@@ -255,7 +363,28 @@ function recordSignal(signal) {
         }
     }
 
+    // Sampling: probabilistically drop duplicate signals to reduce memory pressure.
+    // First occurrence of any dedup key is always recorded regardless of sampleRate.
+    const sampleRate = currentConfig && currentConfig.performance && currentConfig.performance.sampleRate != null
+        ? currentConfig.performance.sampleRate : 1.0;
+    if (sampleRate < 1.0 && signal.package) {
+        const dedupKey = `${signal.package}:${signal.type}:${signal.metadata ? JSON.stringify(signal.metadata).slice(0, 64) : ''}`;
+        const seen = seenDedupKeys.get(dedupKey) || 0;
+        if (seen > 0 && Math.random() > sampleRate) {
+            seenDedupKeys.set(dedupKey, seen + 1);
+            return false;
+        }
+        seenDedupKeys.set(dedupKey, seen + 1);
+    }
+
     signals.push(signal);
+
+    // Append to persistent log file (NDJSON format)
+    if (logStream) {
+        try {
+            logStream.write(JSON.stringify(signal) + '\n');
+        } catch (_) {}
+    }
 
     // Blacklist enforcement: blacklisted packages get a forced CRITICAL signal
     // This guarantees they hit trust score 0 regardless of actual behavior
@@ -314,11 +443,18 @@ function getSignals() {
 
 /**
  * Get calculated trust scores for all packages
- * 
+ *
+ * When a baseline is loaded, signals matching known-good behaviors are
+ * filtered out before scoring so only NEW behaviors affect the score.
+ *
  * @returns {Map} Trust scores by package
  */
 function getTrustScores() {
-    return calculateAllScores(signals, {
+    const scoredSignals = currentBaseline
+        ? filterBaselineSignals(signals, currentBaseline)
+        : signals;
+
+    return calculateAllScores(scoredSignals, {
         deduplicate: currentConfig ? currentConfig.performance.deduplicateSignals !== false : true,
         packageThresholds: currentConfig ? currentConfig.packageThresholds : {},
         configThresholds: currentConfig ? currentConfig.thresholds : {}
@@ -343,6 +479,9 @@ function getConfig() {
  * @returns {string} Formatted report
  */
 function generateReport(format = 'cli') {
+    // Check for hook tampering before scoring — injects HOOK_TAMPER signals if needed
+    checkHookTamper(signals);
+
     const scores = getTrustScores();
 
     // Run pattern analysis on collected signals
@@ -368,14 +507,19 @@ function generateReport(format = 'cli') {
 /**
  * Enforce policy — check if any package exceeds risk thresholds.
  * Returns an object with enforcement results suitable for CI.
- * 
+ *
+ * @param {object} options - { failLevel: 'critical'|'high'|'medium'|'low' }
  * @returns {object} { passed: boolean, criticalPackages: [], message: string }
  */
-function enforcePolicy() {
-    const scores = getTrustScores();
-    const critical = findCriticalPackages(scores, currentConfig);
+function enforcePolicy(options = {}) {
+    const failLevel = options.failLevel ||
+        (currentConfig && currentConfig.enforce && currentConfig.failLevel) ||
+        'critical';
 
-    if (critical.length === 0) {
+    const scores = getTrustScores();
+    const violating = findViolatingPackages(scores, failLevel);
+
+    if (violating.length === 0) {
         return {
             passed: true,
             criticalPackages: [],
@@ -383,11 +527,104 @@ function enforcePolicy() {
         };
     }
 
-    const pkgList = critical.map(p => `${p.name}@${p.version} (score: ${p.score})`).join(', ');
+    const pkgList = violating.map(p => `${p.name}@${p.version} (score: ${p.score})`).join(', ');
     return {
         passed: false,
-        criticalPackages: critical,
-        message: `POLICY VIOLATION: ${critical.length} package(s) exceed risk threshold: ${pkgList}`
+        criticalPackages: violating,
+        message: `POLICY VIOLATION: ${violating.length} package(s) exceed risk threshold [${failLevel}]: ${pkgList}`
+    };
+}
+
+/**
+ * Build a webhook payload in the requested format.
+ *
+ * Supported formats:
+ *   generic   — { source, severity, timestamp, packages[] }
+ *   slack     — Slack Block Kit message
+ *   pagerduty — PagerDuty Events API v2
+ *   teams     — Microsoft Teams Adaptive Card
+ *
+ * @param {string} format
+ * @param {Array}  packages
+ * @returns {object}
+ */
+function buildWebhookPayload(format, packages) {
+    const ts = new Date().toISOString();
+    const pkgLines = packages.map(p => `${p.name}@${p.version} score=${p.score} (${p.riskLevel})`);
+
+    if (format === 'slack') {
+        return {
+            text: `*BHEESHMA ALERT* — ${packages.length} package(s) flagged`,
+            blocks: [
+                {
+                    type: 'header',
+                    text: { type: 'plain_text', text: `⚠️ BHEESHMA Supply-Chain Alert` }
+                },
+                {
+                    type: 'section',
+                    text: {
+                        type: 'mrkdwn',
+                        text: `*${packages.length} package(s) flagged at ${packages[0]?.riskLevel || 'HIGH'} or above:*\n` +
+                              pkgLines.map(l => `• ${l}`).join('\n')
+                    }
+                },
+                {
+                    type: 'context',
+                    elements: [{ type: 'mrkdwn', text: `Detected at ${ts}` }]
+                }
+            ]
+        };
+    }
+
+    if (format === 'pagerduty') {
+        return {
+            routing_key: '',
+            event_action: 'trigger',
+            payload: {
+                summary: `BHEESHMA: ${packages.length} supply-chain threat(s) detected`,
+                severity: 'critical',
+                timestamp: ts,
+                custom_details: {
+                    packages: packages.map(p => ({
+                        name: p.name,
+                        version: p.version,
+                        trustScore: p.score,
+                        riskLevel: p.riskLevel
+                    }))
+                }
+            }
+        };
+    }
+
+    if (format === 'teams') {
+        return {
+            '@type': 'MessageCard',
+            '@context': 'http://schema.org/extensions',
+            themeColor: 'FF0000',
+            summary: `BHEESHMA: ${packages.length} supply-chain threat(s)`,
+            sections: [{
+                activityTitle: `⚠ BHEESHMA Supply-Chain Alert`,
+                activitySubtitle: `${packages.length} package(s) flagged — ${ts}`,
+                facts: packages.map(p => ({
+                    name: `${p.name}@${p.version}`,
+                    value: `Score: ${p.score} | Risk: ${p.riskLevel}`
+                }))
+            }]
+        };
+    }
+
+    // generic (default)
+    return {
+        source: 'bheeshma',
+        severity: packages[0]?.riskLevel || 'CRITICAL',
+        timestamp: ts,
+        packages: packages.map(p => ({
+            name: p.name,
+            version: p.version,
+            trustScore: p.score,
+            riskLevel: p.riskLevel,
+            signalCount: p.signalCount
+        }))
     };
 }
 
@@ -404,19 +641,9 @@ function sendAlertWebhook(url, criticalPackages) {
     try {
         const https = require('https');
         const urlObj = new URL(url);
+        const format = currentConfig && currentConfig.webhookFormat || 'generic';
 
-        const payload = JSON.stringify({
-            source: 'bheeshma',
-            severity: 'CRITICAL',
-            timestamp: new Date().toISOString(),
-            packages: criticalPackages.map(p => ({
-                name: p.name,
-                version: p.version,
-                trustScore: p.score,
-                riskLevel: p.riskLevel,
-                signalCount: p.signalCount
-            }))
-        });
+        const payload = JSON.stringify(buildWebhookPayload(format, criticalPackages));
 
         const req = https.request({
             hostname: urlObj.hostname,
@@ -474,9 +701,23 @@ function teardown() {
     if (dnsHook.uninstall()) uninstalled.push('dnsHook');
     else failed.push('dnsHook');
 
+    if (vmHook.uninstall()) uninstalled.push('vmHook');
+    else failed.push('vmHook');
+
+    if (cryptoHook.uninstall()) uninstalled.push('cryptoHook');
+    else failed.push('cryptoHook');
+
+    if (logStream) {
+        try { logStream.end(); } catch (_) {}
+        logStream = null;
+    }
+
     hooksInstalled = false;
     signals.length = 0;
     currentConfig = null;
+    currentBaseline = null;
+    seenDedupKeys.clear();
+    hookSnapshots.clear();
     obfuscationScannedPackages.clear();
     clearResolverCache();
     clearScanCache();
@@ -528,5 +769,6 @@ module.exports = {
     sendAlertWebhook,
     teardown,
     monitor,
-    recordSignal
+    recordSignal,
+    buildWebhookPayload
 };
