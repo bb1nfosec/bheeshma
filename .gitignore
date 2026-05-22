@@ -33,4 +33,9 @@ build/
 *.tmp
 .tmp/
 temp/
+<<<<<<< HEAD
 bheeshma-results.sarif
+=======
+
+CLAUDE.md
+>>>>>>> 6b4e9d1 (feat: v1.1.0 — vm/crypto hooks, baseline mode, lockfile integrity, diff/explain CLI)
