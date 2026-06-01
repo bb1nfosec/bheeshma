@@ -16,8 +16,7 @@
     }
   },
   "scripts": {
-    "test": "node test/harness.js",
-    "postinstall": "node -e \"if(process.env.npm_config_global){console.log('');console.log('  bheeshma v'+require('./package.json').version+' — strace for npm packages');console.log('  Runtime dependency behavior monitor for Node.js');console.log('');console.log('  Star us on GitHub if bheeshma saved your project:');console.log('  https://github.com/bb1nfosec/bheeshma');console.log('');}\""
+    "test": "node test/harness.js"
   },
   "sideEffects": false,
   "keywords": [

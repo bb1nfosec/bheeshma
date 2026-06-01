@@ -26,7 +26,8 @@ let signalCollector = [];
  * Store original functions for restoration
  */
 const originalFunctions = {
-    netConnect: null
+    netConnect: null,
+    netCreateConnection: null
 };
 
 let isHookInstalled = false;
@@ -48,10 +49,12 @@ function install(collector, config) {
         signalCollector = collector;
         hookConfig = config;
 
-        // Hook net.connect (low-level TCP connections)
-        // Note: HTTP/HTTPS is handled separately by httpHook.js which provides
-        // richer analysis (headers, suspiciousness scoring). We intentionally
-        // do NOT wrap http.request/https.request here to avoid conflicts.
+        // Hook net.connect AND net.createConnection (low-level TCP).
+        // They are separate exported references — patching one does NOT patch
+        // the other, so raw TCP opened via net.createConnection (reverse
+        // shells, custom C2) would otherwise slip through unmonitored.
+        // Node's own HTTP/HTTPS stack uses an internal socket path, not these
+        // public exports, so this never double-counts httpHook traffic.
         hookNetConnect();
 
         isHookInstalled = true;
@@ -68,15 +71,31 @@ function install(collector, config) {
  * @returns {void}
  */
 function hookNetConnect() {
+    // net.connect and net.createConnection are distinct exported references.
+    // Wrap each so neither raw-TCP entry point is missed.
     originalFunctions.netConnect = net.connect;
+    net.connect = makeConnectWrapper('netConnect');
 
-    net.connect = function (...args) {
+    if (typeof net.createConnection === 'function') {
+        originalFunctions.netCreateConnection = net.createConnection;
+        net.createConnection = makeConnectWrapper('netCreateConnection');
+    }
+}
+
+/**
+ * Build a connect-style wrapper that emits a NET_CONNECT signal then delegates
+ * to the saved original. Shared by net.connect and net.createConnection.
+ *
+ * @param {string} originalKey - Key into originalFunctions for the real fn
+ * @returns {Function} Wrapped connect function
+ */
+function makeConnectWrapper(originalKey) {
+    return function (...args) {
         try {
-            // Extract connection info from arguments
-            // net.connect can be called as:
-            // - net.connect(port, host)
-            // - net.connect(options)
-            // - net.connect(path) for IPC
+            // net.connect / net.createConnection can be called as:
+            // - (port, host)
+            // - (options)
+            // - (path) for IPC
             const connInfo = parseNetConnectArgs(args);
             if (connInfo) {
                 emitNetSignal(connInfo.host, connInfo.port, 'tcp');
@@ -85,8 +104,7 @@ function hookNetConnect() {
             // Fail-safe
         }
 
-        // Call original function
-        return originalFunctions.netConnect.apply(this, args);
+        return originalFunctions[originalKey].apply(this, args);
     };
 }
 
@@ -186,6 +204,11 @@ function uninstall() {
         // Restore original functions
         if (originalFunctions.netConnect) {
             net.connect = originalFunctions.netConnect;
+            originalFunctions.netConnect = null;
+        }
+        if (originalFunctions.netCreateConnection) {
+            net.createConnection = originalFunctions.netCreateConnection;
+            originalFunctions.netCreateConnection = null;
         }
 
         isHookInstalled = false;

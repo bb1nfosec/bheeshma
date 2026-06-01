@@ -13,10 +13,12 @@
 const http = require('http');
 const https = require('https');
 const { createSignal, SignalType } = require('../signals/signalTypes');
-const { getPackageFromStack } = require('../attribution/resolver');
+const { resolveResponsible } = require('../attribution/resolver');
 
 let originalHttpRequest = null;
 let originalHttpsRequest = null;
+let originalHttpGet = null;
+let originalHttpsGet = null;
 let signalsArray = null;
 let hookConfig = null;
 
@@ -49,6 +51,22 @@ function install(signals, config) {
             https.request = createHttpRequestHook(originalHttpsRequest, true);
         }
 
+        // Hook http.get / https.get separately.
+        // CRITICAL: in Node core, http.get() calls the *internal* request
+        // function, not the exported http.request we patched above — so
+        // patching request alone leaves every .get() call (a huge share of
+        // real-world traffic and a common exfil/beacon path) completely
+        // unmonitored. We wrap get() directly. No double-counting: the
+        // original get() does not route back through our patched request.
+        if (!originalHttpGet) {
+            originalHttpGet = http.get;
+            http.get = createHttpRequestHook(originalHttpGet, false);
+        }
+        if (!originalHttpsGet) {
+            originalHttpsGet = https.get;
+            https.get = createHttpRequestHook(originalHttpsGet, true);
+        }
+
         return true;
     } catch (err) {
         console.error('[BHEESHMA] HTTP hook installation failed:', err.message);
@@ -69,9 +87,10 @@ function createHttpRequestHook(original, isHttps) {
         const requestInfo = parseRequestArgs(args, isHttps);
 
         if (requestInfo) {
-            // Capture stack trace for attribution
+            // Capture stack trace for attribution (async-aware: falls back to
+            // the async context when the originating frames have unwound).
             const stack = new Error().stack;
-            const attribution = getPackageFromStack(stack);
+            const attribution = resolveResponsible(stack);
 
             // Only record signals for third-party packages (not first-party code)
             if (!attribution) {
@@ -240,6 +259,16 @@ function uninstall() {
         if (originalHttpsRequest) {
             https.request = originalHttpsRequest;
             originalHttpsRequest = null;
+        }
+
+        if (originalHttpGet) {
+            http.get = originalHttpGet;
+            originalHttpGet = null;
+        }
+
+        if (originalHttpsGet) {
+            https.get = originalHttpsGet;
+            originalHttpsGet = null;
         }
 
         signalsArray = null;

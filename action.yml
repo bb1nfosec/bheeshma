@@ -54,20 +54,19 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Install bheeshma
-      shell: bash
-      run: npm install -g bheeshma@latest
-
     - name: Run bheeshma runtime security monitor
       shell: bash
       id: bheeshma
       run: |
+        # Use the checked-out action's own code (no global npm install needed).
+        # We invoke bheeshma-ci.js directly because it is the CLI that parses
+        # --fail-level / --no-skip-low and emits SARIF; the base `bheeshma` CLI
+        # does not understand those flags.
+        BHEESHMA_CLI="${{ github.action_path }}/bin/bheeshma-ci.js"
+
         ARGS=""
         if [ -n "${{ inputs.config }}" ]; then
           ARGS="$ARGS --config ${{ inputs.config }}"
-        fi
-        if [ "${{ inputs.enforce }}" = "true" ]; then
-          ARGS="$ARGS --enforce"
         fi
         ARGS="$ARGS --fail-level ${{ inputs.fail-level }}"
         ARGS="$ARGS --output ${{ inputs.sarif-output }}"
@@ -75,10 +74,19 @@ runs:
           ARGS="$ARGS --no-skip-low"
         fi
 
-        echo "::group::🛡️ Bheeshma — Runtime Supply Chain Security Monitor"
-        bheeshma $ARGS -- ${{ inputs.command }}
+        echo "::group::Bheeshma — Runtime Supply Chain Security Monitor"
+        node "$BHEESHMA_CLI" $ARGS -- ${{ inputs.command }}
         BHEESHMA_EXIT=$?
         echo "::endgroup::"
+
+        # bheeshma-ci always exits non-zero on a policy violation. When the
+        # caller opts out of enforcement (enforce: false), report findings but
+        # do not fail the build.
+        if [ "${{ inputs.enforce }}" = "false" ] && [ "$BHEESHMA_EXIT" != "0" ]; then
+          echo "::warning::[bheeshma] Policy violation detected (enforce=false, not failing build)"
+          BHEESHMA_EXIT=0
+        fi
+
         echo "exit-code=$BHEESHMA_EXIT" >> "$GITHUB_OUTPUT"
         echo "findings={\"exit_code\": $BHEESHMA_EXIT, \"sarif\": \"${{ inputs.sarif-output }}\"}" >> "$GITHUB_OUTPUT"
         exit $BHEESHMA_EXIT

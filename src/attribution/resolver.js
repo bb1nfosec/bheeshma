@@ -16,6 +16,39 @@ const fs = require('fs');
 const path = require('path');
 
 /**
+ * Async attribution context.
+ *
+ * Synchronous stack-trace attribution (getPackageFromStack) only works while
+ * the originating package's frames are still on the call stack. The moment a
+ * package defers work across an async boundary — setTimeout, setImmediate,
+ * process.nextTick, a Promise continuation, or an I/O callback — those frames
+ * are gone, and a network/exec call made from that continuation looks like
+ * first-party code (attribution returns null and the signal is dropped).
+ *
+ * This is also the trivial evasion path for malware: `setImmediate(() => exfil())`.
+ *
+ * AsyncLocalStorage closes most of that gap. We seed it at module-load time
+ * (see installModuleContextHook in src/index.js): while a node_modules module's
+ * code runs, the responsible package is stored in the context, and — critically
+ * — that context is inherited by any timers, promises, or I/O callbacks the
+ * module schedules. When the synchronous stack can no longer identify a package,
+ * we fall back to whichever package's continuation we are currently running in.
+ *
+ * Guarded require: async_hooks is available on every supported Node (>=14),
+ * but we degrade gracefully to stack-only attribution if it is ever absent.
+ *
+ * @type {import('async_hooks').AsyncLocalStorage | null}
+ */
+const pkgContextStore = (() => {
+    try {
+        const { AsyncLocalStorage } = require('async_hooks');
+        return new AsyncLocalStorage();
+    } catch (err) {
+        return null;
+    }
+})();
+
+/**
  * In-memory cache for package.json lookups
  * Security: Reduces filesystem I/O and prevents TOCTOU issues
  * @type {Map<string, object>}
@@ -133,8 +166,74 @@ function extractPackageInfo(filePath, nodeModulesIndex) {
 }
 
 /**
+ * Resolve package attribution directly from a file path (no stack trace).
+ *
+ * Used to seed the async attribution context at module-load time. Unlike the
+ * stack walker — which finds the OUTERMOST node_modules frame to attribute a
+ * *call* to the dependency the user installed — this finds the INNERMOST
+ * node_modules segment, i.e. the package that actually owns the file being
+ * loaded. That is the correct "currently executing package" for the context.
+ *
+ * @param {string} filePath - Absolute path to a module file
+ * @returns {object|null} { name, version, path } or null if not in node_modules
+ */
+function getPackageFromPath(filePath) {
+    try {
+        if (!filePath || typeof filePath !== 'string') return null;
+        const nodeModulesIndex = filePath.lastIndexOf('node_modules');
+        if (nodeModulesIndex === -1) return null;
+        return extractPackageInfo(filePath, nodeModulesIndex);
+    } catch (err) {
+        return null;
+    }
+}
+
+/**
+ * Run a function with a package set as the current async attribution context.
+ * No-op passthrough when async_hooks is unavailable or no package is given.
+ *
+ * @param {object|null} pkg - Package attribution { name, version, path }
+ * @param {Function} fn - Function to run within the context
+ * @returns {*} Whatever fn returns
+ */
+function runWithPackageContext(pkg, fn) {
+    if (!pkgContextStore || !pkg) {
+        return fn();
+    }
+    return pkgContextStore.run(pkg, fn);
+}
+
+/**
+ * Get the package whose continuation is currently executing, if any.
+ *
+ * @returns {object|null} Package attribution { name, version, path } or null
+ */
+function getCurrentPackage() {
+    if (!pkgContextStore) return null;
+    return pkgContextStore.getStore() || null;
+}
+
+/**
+ * Resolve the package responsible for the current behavior.
+ *
+ * Prefers synchronous stack-trace attribution (most precise — it pinpoints the
+ * exact dependency on the live call stack). Falls back to the async context
+ * (getCurrentPackage) when the originating frames have already unwound across
+ * an async boundary. This is the single resolution entry point all hooks
+ * should use so async-deferred behavior is no longer silently dropped.
+ *
+ * @param {string} [stack] - Optional pre-captured stack string
+ * @returns {object|null} Package attribution { name, version, path } or null
+ */
+function resolveResponsible(stack) {
+    const fromStack = getPackageFromStack(stack || new Error().stack);
+    if (fromStack) return fromStack;
+    return getCurrentPackage();
+}
+
+/**
  * Read and parse package.json with caching
- * 
+ *
  * @param {string} packageDir - Absolute path to package directory
  * @returns {object|null} Parsed package.json or null
  */
@@ -174,7 +273,9 @@ function clearCache() {
 function resolveCurrentStack() {
     const error = new Error();
     Error.captureStackTrace(error, resolveCurrentStack);
-    return resolvePackageFromStack(error);
+    // Async-aware: prefer the live stack, fall back to the async context so
+    // behavior deferred across timers/promises/I/O is still attributed.
+    return resolveResponsible(error.stack);
 }
 
 /**
@@ -240,6 +341,10 @@ module.exports = {
     resolvePackageFromStack,
     resolveCurrentStack,
     getPackageFromStack,
+    getPackageFromPath,
+    resolveResponsible,
+    runWithPackageContext,
+    getCurrentPackage,
     clearCache,
     matchesWhitelist,
     isWhitelisted

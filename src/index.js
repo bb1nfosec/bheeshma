@@ -147,6 +147,10 @@ function init(options = {}) {
         failed.push('dnsHook');
     }
 
+    // Seed the async attribution context at module-load time so behavior
+    // deferred across async boundaries is still attributed to the right package.
+    installModuleContextHook();
+
     // Set up worker thread signal collection if available
     setupWorkerSignalCollection();
 
@@ -215,6 +219,69 @@ function setupWorkerSignalCollection() {
         };
     } catch (err) {
         // worker_threads not available (Node < 11.7)
+    }
+}
+
+/**
+ * Original Module._load, saved so teardown() can restore it.
+ */
+let originalModuleLoad = null;
+
+/**
+ * Seed the async attribution context by wrapping Module._load.
+ *
+ * When a file inside node_modules is loaded, we resolve which package owns it
+ * and run the load within that package's async context (resolver context store).
+ * Because AsyncLocalStorage propagates across timers, promises, and I/O
+ * callbacks, any work the module schedules during initialization stays
+ * attributed to it — even when the synchronous stack has unwound. Hooks still
+ * prefer live-stack attribution; this only fills the gap when the stack can't.
+ *
+ * Heavily guarded: resolution failures fall through to the original loader,
+ * and core/builtin requires (no node_modules in the path) take the fast path.
+ */
+function installModuleContextHook() {
+    try {
+        if (originalModuleLoad) return;
+        const Module = require('module');
+        originalModuleLoad = Module._load;
+
+        Module._load = function (request, parent, isMain) {
+            let pkg = null;
+            try {
+                const filename = Module._resolveFilename(request, parent, isMain);
+                if (typeof filename === 'string' && filename.indexOf('node_modules') !== -1) {
+                    pkg = resolver.getPackageFromPath(filename);
+                }
+            } catch (err) {
+                // Resolution can throw for unresolvable specifiers — fall through.
+            }
+
+            if (pkg) {
+                return resolver.runWithPackageContext(
+                    pkg,
+                    () => originalModuleLoad.call(this, request, parent, isMain)
+                );
+            }
+            return originalModuleLoad.call(this, request, parent, isMain);
+        };
+    } catch (err) {
+        // Never let context seeding break module loading.
+        originalModuleLoad = null;
+    }
+}
+
+/**
+ * Restore the original Module._load (used by teardown).
+ */
+function uninstallModuleContextHook() {
+    try {
+        if (originalModuleLoad) {
+            require('module')._load = originalModuleLoad;
+            originalModuleLoad = null;
+        }
+    } catch (err) {
+        // Best effort.
     }
 }
 
@@ -473,6 +540,8 @@ function teardown() {
 
     if (dnsHook.uninstall()) uninstalled.push('dnsHook');
     else failed.push('dnsHook');
+
+    uninstallModuleContextHook();
 
     hooksInstalled = false;
     signals.length = 0;
