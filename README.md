@@ -58,6 +58,13 @@ Static and registry-graph scanners (Socket.dev, Snyk, Dependabot, npm audit) rea
 deployment patterns, gating posture, data-handling, assurance, and an evaluation
 checklist.
 
+**Two engines:** the default in-process engine is fast and precise per-package
+but is telemetry, not a boundary. An experimental **out-of-process engine**
+(`bheeshma-sandbox`, Linux + `strace`) observes syscalls from *outside* the
+process — it cannot be evaded by the monitored code and sees native subprocess
+egress (e.g. `curl`) the in-process engine is blind to, and can even *prevent*
+egress (`--block-network`). See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+
 ---
 
 ## 30-Second Quick Start
