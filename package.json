@@ -1,6 +1,6 @@
 {
   "name": "bheeshma",
-  "version": "2.1.1",
+  "version": "3.0.0",
   "description": "Runtime dependency behavior monitor for Node.js — the strace for npm packages. Detects supply-chain attacks that static analysis misses. Zero dependencies. Zero config. Zero telemetry.",
   "main": "src/index.js",
   "types": "src/index.d.ts",

@@ -2,12 +2,24 @@
 
 All notable changes to BHEESHMA will be documented in this file.
 
-## [Unreleased] — hardening toward a production/enterprise tool
+## [Unreleased]
+
+## [3.0.0] - 2026-06-02 — hardening toward a production/enterprise tool
 
 Evidence-driven hardening: an efficacy benchmark, a real-package false-positive
 sweep, and CLI integration tests repeatedly exposed real bugs, each fixed here.
 See `benchmark/FINDINGS.md`, `docs/THREAT_MODEL.md`, `docs/ENTERPRISE.md`, and
 `docs/ARCHITECTURE.md`.
+
+### ⚠️ Breaking
+
+- **Default `fail-level` is now `high` (was `critical`).** Builds that passed
+  before may now fail if a dependency reaches HIGH risk. This is intentional:
+  `critical`-only caught ~29% of modeled attacks; `high+` catches 100% at 0%
+  false positives on 71 real packages. To keep prior behavior, set
+  `fail-level: critical` explicitly. (Mitigated so the stricter default is safe:
+  a bare secret-env read is MEDIUM, HIGH only when paired with an outbound
+  connection — so legitimate credential-consuming packages aren't flagged.)
 
 ### Added
 
