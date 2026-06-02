@@ -25,10 +25,65 @@ const { spawn } = require('child_process');
 const path = require('path');
 const { createSignal, SignalType } = require('../signals/signalTypes');
 const { isPackageManagerEntry } = require('../util/processKind');
+const { analyzeHostname } = require('../analysis/dnsAnalysis');
 
 // Syscalls we trace. Kept tight: the behaviors that matter for supply-chain
 // detection, plus process-lineage syscalls for attribution.
-const TRACED = 'execve,connect,socket,openat,clone,clone3,fork,vfork';
+const TRACED = 'execve,connect,socket,sendto,sendmmsg,openat,clone,clone3,fork,vfork';
+
+// DNS query names are recovered by un-escaping strace's printed payload back to
+// raw bytes and parsing the DNS wire format (length-prefixed labels from the
+// 12-byte header). This is exact — unlike text heuristics it doesn't fail when a
+// label's length byte happens to be a printable character (e.g. a 43-char
+// exfil label whose length byte is '+'), which is precisely the long,
+// high-entropy label DNS tunneling uses.
+const NAMED_ESCAPE = { n: 10, t: 9, r: 13, v: 11, f: 12, b: 8, a: 7, '\\': 92, '"': 34 };
+
+function unescapeStraceString(s) {
+    const out = [];
+    for (let i = 0; i < s.length; i++) {
+        const c = s[i];
+        if (c !== '\\') { out.push(s.charCodeAt(i) & 0xff); continue; }
+        const n = s[i + 1];
+        if (n === 'x') { out.push(parseInt(s.substr(i + 2, 2), 16) & 0xff); i += 3; }
+        else if (n >= '0' && n <= '7') {
+            let j = i + 1, oct = '';
+            while (j < s.length && oct.length < 3 && s[j] >= '0' && s[j] <= '7') { oct += s[j]; j++; }
+            out.push(parseInt(oct, 8) & 0xff); i = j - 1;
+        } else { out.push(NAMED_ESCAPE[n] !== undefined ? NAMED_ESCAPE[n] : s.charCodeAt(i + 1) & 0xff); i++; }
+    }
+    return Buffer.from(out);
+}
+
+function parseQName(buf) {
+    if (!buf || buf.length < 13) return null;
+    let off = 12; // skip DNS header
+    const labels = [];
+    while (off < buf.length) {
+        const len = buf[off];
+        if (len === 0) break;
+        if (len > 63) return null; // compression pointer / not a plain query
+        if (off + 1 + len > buf.length) break;
+        labels.push(buf.toString('latin1', off + 1, off + 1 + len));
+        off += len + 1;
+        if (labels.length > 25) break;
+    }
+    if (labels.length < 2) return null;
+    const name = labels.join('.');
+    if (!/^[A-Za-z0-9._+/=-]+$/.test(name)) return null;
+    return name;
+}
+
+function parseDnsNames(line) {
+    const quoted = line.match(/"(?:[^"\\]|\\.)*"/g);
+    if (!quoted) return [];
+    const names = [];
+    for (const q of quoted) {
+        const name = parseQName(unescapeStraceString(q.slice(1, -1)));
+        if (name) names.push(name);
+    }
+    return [...new Set(names)];
+}
 
 // Credential / secret files worth flagging on read (others are loader/noise).
 const SENSITIVE_FILE = /(^|\/)(\.npmrc|\.env|\.netrc|\.git-credentials|id_rsa|id_ed25519|credentials|\.aws\/|\.ssh\/)/;
@@ -158,6 +213,28 @@ function run(command, args, opts = {}) {
                 return;
             }
 
+            // sendto/sendmmsg: recover DNS query names from UDP payloads so the
+            // out-of-process engine catches DNS tunneling/exfil too.
+            if (/^(?:sendto|sendmmsg)\(/.test(body)) {
+                const owner = attributionFor(pid);
+                if (owner) {
+                    for (const host of parseDnsNames(body)) {
+                        const a = analyzeHostname(host);
+                        push(SignalType.DNS_QUERY, {
+                            hostname: host,
+                            isIpAddress: a.isIpAddress,
+                            suspiciousSubdomainLength: a.suspiciousSubdomainLength,
+                            highEntropySubdomain: a.highEntropySubdomain,
+                            knownExfilService: a.knownExfilService,
+                            base64InSubdomain: a.base64InSubdomain,
+                            hexInSubdomain: a.hexInSubdomain,
+                            indicators: a.indicators
+                        }, owner, pid);
+                    }
+                }
+                return;
+            }
+
             // socket(): flag RAW sockets — packet crafting / covert channels,
             // not something a benign install/build does.
             const sock = body.match(/^socket\(([^,]+),\s*([^,]+),/);
@@ -197,4 +274,4 @@ function unquoteArgv(argvStr) {
     return argvStr.split(/",\s*"/).map(s => s.replace(/^"|"$/g, '')).join(' ').slice(0, 256);
 }
 
-module.exports = { run };
+module.exports = { run, parseDnsNames, parseQName, unescapeStraceString };

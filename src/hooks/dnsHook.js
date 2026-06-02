@@ -13,6 +13,7 @@
 const dns = require('dns');
 const { createSignal, SignalType } = require('../signals/signalTypes');
 const { resolveCurrentStackFast } = require('../attribution/resolver');
+const { analyzeHostname } = require('../analysis/dnsAnalysis');
 
 let signalCollector = [];
 let hookConfig = null;
@@ -25,19 +26,6 @@ const originalFunctions = {
     resolve6: null,
     resolveTxt: null
 };
-
-/**
- * Known exfiltration DNS services
- * NOTE: ngrok.io and localtunnel.me are EXCLUDED — they are legitimate
- * dev tools, not exfil services. canarytokens.com is EXCLUDED — it's a
- * DEFENSIVE tool, not an attack tool.
- */
-const KNOWN_EXFIL_DOMAINS = [
-    'dnshook.site',
-    'requestbin.com',
-    'webhook.site',
-    'pipedream.com'
-];
 
 /**
  * Install DNS monitoring hook
@@ -143,107 +131,8 @@ function emitDnsSignal(hostname, function_) {
     }
 }
 
-/**
- * Analyze a hostname for DNS tunneling and exfiltration patterns
- * 
- * Checks:
- * 1. Abnormally long subdomains (>50 chars, indicating encoded data)
- * 2. High-entropy subdomains (Base64/hex encoded data)
- * 3. Known exfiltration services
- * 4. Base64 character patterns in domain labels
- * 5. Hex-encoded subdomains
- * 
- * @param {string} hostname - Hostname to analyze
- * @returns {object} Analysis results
- */
-function analyzeHostname(hostname) {
-    const analysis = {
-        isIpAddress: false,
-        suspiciousSubdomainLength: false,
-        highEntropySubdomain: false,
-        knownExfilService: false,
-        base64InSubdomain: false,
-        hexInSubdomain: false,
-        indicators: []
-    };
-
-    // Check if it's an IP address (not useful for DNS tunneling detection)
-    const ipPattern = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
-    if (ipPattern.test(hostname)) {
-        analysis.isIpAddress = true;
-        return analysis;
-    }
-
-    // Extract subdomain parts
-    const parts = hostname.split('.');
-
-    // Check known exfil services (match against domain end, not substring)
-    for (const exfilDomain of KNOWN_EXFIL_DOMAINS) {
-        if (hostname === exfilDomain || hostname.endsWith('.' + exfilDomain)) {
-            analysis.knownExfilService = true;
-            analysis.indicators.push(`Known exfil service: ${exfilDomain}`);
-        }
-    }
-
-    // Analyze each subdomain label
-    for (let i = 0; i < parts.length - 1; i++) { // Skip TLD
-        const label = parts[i];
-
-        // Check for abnormally long subdomains (>50 chars = likely encoded data)
-        if (label.length > 50) {
-            analysis.suspiciousSubdomainLength = true;
-            analysis.indicators.push(`Abnormally long subdomain: ${label.length} chars`);
-        }
-
-        // Check for high entropy (likely encoded data)
-        if (label.length > 10) {
-            const entropy = calculateShannonEntropy(label);
-            if (entropy > 4.0) {
-                analysis.highEntropySubdomain = true;
-                analysis.indicators.push(`High-entropy subdomain (${entropy.toFixed(2)} bits)`);
-            }
-        }
-
-        // Check for Base64 patterns in subdomains
-        if (label.length > 16 && /^[A-Za-z0-9+/=]+$/.test(label)) {
-            analysis.base64InSubdomain = true;
-            analysis.indicators.push('Base64-like characters in subdomain');
-        }
-
-        // Check for hex-encoded subdomains (long hex strings)
-        if (label.length > 20 && /^[0-9a-fA-F]+$/.test(label)) {
-            analysis.hexInSubdomain = true;
-            analysis.indicators.push('Hex-encoded subdomain');
-        }
-    }
-
-    return analysis;
-}
-
-/**
- * Calculate Shannon entropy of a string
- * Higher entropy = more random/encoded = more suspicious
- * 
- * @param {string} str - Input string
- * @returns {number} Shannon entropy in bits
- */
-function calculateShannonEntropy(str) {
-    if (!str || str.length === 0) return 0;
-
-    const freq = {};
-    for (const char of str) {
-        freq[char] = (freq[char] || 0) + 1;
-    }
-
-    let entropy = 0;
-    const len = str.length;
-    for (const count of Object.values(freq)) {
-        const p = count / len;
-        entropy -= p * Math.log2(p);
-    }
-
-    return entropy;
-}
+// Hostname analysis (entropy, known-exfil, subdomain heuristics) lives in
+// ../analysis/dnsAnalysis so the in-process and out-of-process engines agree.
 
 /**
  * Uninstall DNS hook

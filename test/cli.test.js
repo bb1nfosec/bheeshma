@@ -137,6 +137,21 @@ function run() {
     check(isPackageManagerEntry('/app/node_modules/evilpkg/index.js') === false, 'does NOT flag a dependency entry');
     check(isPackageManagerEntry('/app/server.js') === false, 'does NOT flag ordinary app code');
 
+    // --- DNS query parsing (pure; no strace needed) ---
+    console.log('\nstraceRunner — DNS wire-format parsing from strace output');
+    const { parseDnsNames } = require('../src/sandbox/straceRunner');
+    // A real c-ares query line (DNS header + length-prefixed labels), as strace prints it.
+    const dnsLine = 'sendto(17, "\\375\\300\\1\\0\\0\\1\\0\\0\\0\\0\\0\\0\\na1b2c3d4e5\\6tunnel\\7evil-c2\\7example\\3com\\0\\0\\1\\0\\1", 55, 0, NULL, 0) = 55';
+    const dnsNames = parseDnsNames(dnsLine);
+    check(dnsNames.includes('a1b2c3d4e5.tunnel.evil-c2.example.com'),
+        'reconstructs the DNS query name from the wire payload (incl. a label whose length byte is printable)');
+    // A long high-entropy label (length byte is printable '+', which a text heuristic would drop)
+    const longLabel = 'A'.repeat(43);
+    const payload = '\\1\\0\\1\\0\\0\\1\\0\\0\\0\\0\\0\\0+' + longLabel + '\\4test\\3com\\0';
+    const longNames = parseDnsNames(`sendmmsg(7, [{msg_hdr={msg_iov=[{iov_base="${payload}", iov_len=60}]}}], 1, 0) = 1`);
+    check(longNames.some(n => n.startsWith(longLabel + '.test.com')),
+        'recovers a 43-char label whose length byte is a printable character');
+
     // --- out-of-process engine: catches native subprocess egress (skipped w/o strace) ---
     console.log('\nbheeshma-sandbox — out-of-process engine (Linux + strace)');
     const hasStrace = spawnSync('which', ['strace'], { encoding: 'utf8' }).status === 0;
