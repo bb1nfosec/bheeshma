@@ -51,7 +51,15 @@ Built the efficacy benchmark + fixed two more bugs it exposed:
   2. **`--fail-level high/medium/low` were no-ops** (enforcePolicy returned only CRITICAL, then CI filtered that CRITICAL-only list). Fixed: `findViolatingPackages(scores, level)` + `enforcePolicy({failLevel})`. E2E verified (high→exit1 on HIGH pkg).
 - Tests 44→48.
 
+## Session 3 cont'd (commit bb6a9ba) — DONE
+- **`bheeshma install` monitored nothing** (spawned npm with no preload) — the flagship "catch malicious postinstall" feature. Fixed with ci-preload + ingest.
+- That surfaced npm-internals noise (npm/semver/pacote/tar/sigstore attributed as packages, 392+ signals). Fixed: **ci-preload skips the package-manager process itself** (npm/npx/yarn/pnpm/corepack launcher or *-cli.js); only lifecycle-script child processes are monitored.
+- E2E: `bheeshma install` of a tarball whose postinstall reads ~/.npmrc + POSTs to exfil host now flags exactly evilpkg@1.0.0 CRITICAL, exits 1, zero npm noise.
+- NOTE: attribution needs the executing file under `node_modules/` — `npm install <folder>` runs postinstall from the SOURCE dir (no node_modules) so it's not attributed; real registry/tarball installs run from node_modules and ARE attributed. Test with `npm pack` tarballs, not local-folder installs.
+- All 3 CLI entry points (bheeshma, bheeshma-ci, bheeshma-install) now actually collect from spawned commands.
+
 ## Immediate next steps (when resuming)
+0. **Integration tests for the CLI bins** (spawn-path collection + PM-skip + fail-level exit codes). Current harness is in-process only and never exercised the bins — that's why these big bugs hid. HIGH priority for maturity.
 1. **Default-gate decision:** wiring now works; default still 'critical' (conservative, high precision). Consider recommending 'high' in README/action (corpus: critical=29%, high=100%/0%FP) — but synthetic corpus; weigh real-world FP. Non-urgent.
 2. P1 reliability: node:test runner replacing sleep()-based harness + coverage; TypeScript migration (index.d.ts can drift).
 3. P2: scan all package files not just entry point.
