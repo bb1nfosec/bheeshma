@@ -13,7 +13,7 @@
 'use strict';
 
 const { createSignal, SignalType } = require('../signals/signalTypes');
-const { resolveResponsible } = require('../attribution/resolver');
+const { resolveCurrentStackFast } = require('../attribution/resolver');
 
 /**
  * Detect env reads that are Node's own internal full-environment copy rather
@@ -171,19 +171,28 @@ function emitEnvAccessSignal(variableName) {
             return;
         }
 
-        const stack = new Error().stack;
-
-        // Skip Node's internal full-environment copy during child_process spawn
-        // (one read per env var) — it is not a deliberate access by the package.
-        if (isInternalEnvEnumeration(stack)) {
-            return;
-        }
-
-        // Resolve package (async-aware: stack first, then async context)
-        const attribution = resolveResponsible(stack);
+        // Resolve package (fast: structured stack, no string formatting).
+        const attribution = resolveCurrentStackFast();
 
         // Only emit signals for third-party packages
         if (!attribution) {
+            return;
+        }
+
+        // Fast-path: skip the string-stack capture below if this signal would
+        // be dropped anyway (maxSignals reached / whitelisted). env is the
+        // hottest hook, so this avoids the dominant cost on the common path.
+        if (signalCollector.shouldCapture &&
+            !signalCollector.shouldCapture(attribution.name, attribution.version)) {
+            return;
+        }
+
+        // A string stack is still needed to recognize Node's internal
+        // full-environment copy during child_process spawn (one read per env
+        // var) — not a deliberate access by the package. Captured only now,
+        // for signals we would actually record.
+        const stack = new Error().stack;
+        if (isInternalEnvEnumeration(stack)) {
             return;
         }
 

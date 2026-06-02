@@ -15,7 +15,7 @@
 
 const childProcess = require('child_process');
 const { createSignal, SignalType } = require('../signals/signalTypes');
-const { resolveCurrentStack } = require('../attribution/resolver');
+const { resolveCurrentStackFast } = require('../attribution/resolver');
 
 let signalCollector = [];
 const originalFunctions = {
@@ -125,11 +125,17 @@ function hookFunction(fnName) {
  */
 function emitShellSignal(args, operation) {
     try {
-        // Resolve attribution
-        const attribution = resolveCurrentStack();
+        // Resolve attribution (fast: structured stack, no string formatting)
+        const attribution = resolveCurrentStackFast();
 
         // Only emit for third-party packages
         if (!attribution) {
+            return;
+        }
+
+        // Fast-path: skip the rest if this signal would be dropped anyway.
+        if (signalCollector.shouldCapture &&
+            !signalCollector.shouldCapture(attribution.name, attribution.version)) {
             return;
         }
 

@@ -12,7 +12,7 @@
 
 const dns = require('dns');
 const { createSignal, SignalType } = require('../signals/signalTypes');
-const { resolveCurrentStack } = require('../attribution/resolver');
+const { resolveCurrentStackFast } = require('../attribution/resolver');
 
 let signalCollector = [];
 let hookConfig = null;
@@ -106,11 +106,15 @@ function hookDnsFunction(fnName) {
  */
 function emitDnsSignal(hostname, function_) {
     try {
-        const attribution = resolveCurrentStack();
+        const attribution = resolveCurrentStackFast();
         if (!attribution) return;
 
-        // Note: Whitelist checking is handled centrally by the signal recorder
-        // in index.js (createSignalRecorder) — no need to check here.
+        // Fast-path: skip stack capture + analysis if this signal would be
+        // dropped anyway (maxSignals reached / whitelisted).
+        if (signalCollector.shouldCapture &&
+            !signalCollector.shouldCapture(attribution.name, attribution.version)) {
+            return;
+        }
 
         const analysis = analyzeHostname(hostname);
 

@@ -69,6 +69,30 @@ function createSignalRecorder() {
         push(signal) {
             return recordSignal(signal);
         },
+        /**
+         * Cheap pre-check for the hot path: would a signal for this package be
+         * recorded at all? Lets hooks skip the expensive string-stack capture
+         * and signal construction when the signal would be dropped anyway
+         * (maxSignals reached, or whitelisted). recordSignal still enforces
+         * these — this is a fast-path optimization, not the source of truth.
+         *
+         * @param {string} packageName
+         * @param {string} [version]
+         * @returns {boolean}
+         */
+        shouldCapture(packageName, version) {
+            if (currentConfig && currentConfig.performance && currentConfig.performance.maxSignals) {
+                if (signals.length >= currentConfig.performance.maxSignals) {
+                    return false;
+                }
+            }
+            if (packageName && currentConfig && currentConfig.whitelist) {
+                if (isWhitelisted(packageName, version, currentConfig.whitelist)) {
+                    return false;
+                }
+            }
+            return true;
+        },
         get length() {
             return signals.length;
         }
