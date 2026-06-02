@@ -51,6 +51,12 @@ See `benchmark/FINDINGS.md`, `docs/THREAT_MODEL.md`, `docs/ENTERPRISE.md`, and
 
 - **Correlation-aware scoring**: recognized exfil/backdoor/crypto/credential-theft/
   typosquat/DNS-tunneling/obfuscation+network patterns now cap the trust score.
+- **Default gate is now `high`** (was `critical`) for `bheeshma-ci`, the GitHub
+  Action, `bheeshma-sandbox`, and `bheeshma --enforce`. Critical-only caught ~29%
+  of the modeled attacks; `high+` catches 100% at 0% false positives on 71 real
+  packages. A bare secret-env-var read is now MEDIUM (common in benign deploy
+  tools); it is only HIGH when paired with an outbound connection (real exfil) —
+  so the stricter default does not false-positive on credential-consuming packages.
 - **Honest positioning**: README/docs reframe BHEESHMA as defense-in-depth
   runtime telemetry (the in-process engine is not a containment boundary), with
   an explicit threat model and limitations.

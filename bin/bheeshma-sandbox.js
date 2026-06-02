@@ -29,7 +29,7 @@ const jsonFormatter = require('../src/output/jsonFormatter');
 const sarifFormatter = require('../src/output/sarifFormatter');
 
 function parseArgs(argv) {
-    const o = { enforce: false, failLevel: 'critical', format: 'cli', output: null, blockNetwork: false, command: null, commandArgs: [] };
+    const o = { enforce: false, failLevel: 'high', format: 'cli', output: null, blockNetwork: false, command: null, commandArgs: [] };
     let i = 0;
     while (i < argv.length) {
         const a = argv[i];

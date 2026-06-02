@@ -13,7 +13,7 @@ inputs:
   fail-level:
     description: 'Minimum risk level to fail the build (critical | high | medium | low)'
     required: false
-    default: 'critical'
+    default: 'high'
   config:
     description: 'Path to .bheeshmarc.json config file (optional)'
     required: false

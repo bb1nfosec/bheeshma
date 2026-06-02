@@ -338,6 +338,7 @@ function detectBackdoors(signals) {
  */
 function detectCredentialTheft(signals) {
     const indicators = [];
+    const secretEnvReaders = new Set();
 
     for (const signal of signals) {
         // Check for secret environment variable access
@@ -346,9 +347,14 @@ function detectCredentialTheft(signals) {
 
             for (const secretVar of CREDENTIAL_THEFT_PATTERNS.secretEnvVars) {
                 if (variable === secretVar) {
+                    // MEDIUM on its own: reading a secret env var is common and
+                    // often legitimate (deploy tools, cloud SDKs). It only
+                    // becomes high-confidence credential theft when paired with
+                    // an exfil channel (see the combination check below).
+                    secretEnvReaders.add(signal.package);
                     indicators.push({
                         type: 'SECRET_ENV_ACCESS',
-                        severity: 'HIGH',
+                        severity: 'MEDIUM',
                         package: signal.package,
                         indicator: secretVar,
                         signal
@@ -380,6 +386,29 @@ function detectCredentialTheft(signals) {
                     });
                 }
             }
+        }
+    }
+
+    // Combination: reading secret env var(s) AND making an outbound connection
+    // is the actual credential-exfiltration pattern (HIGH), distinct from the
+    // benign "reads creds to configure itself" case (MEDIUM, above).
+    for (const pkg of secretEnvReaders) {
+        if (!pkg) continue;
+        const exfils = signals.some(s =>
+            s.package === pkg && (
+                s.type === SignalType.HTTP_REQUEST ||
+                s.type === SignalType.HTTPS_REQUEST ||
+                s.type === SignalType.NET_CONNECT ||
+                s.type === SignalType.DNS_QUERY
+            )
+        );
+        if (exfils) {
+            indicators.push({
+                type: 'SECRET_ENV_EXFIL',
+                severity: 'HIGH',
+                package: pkg,
+                indicator: 'Read secret env var(s) and made an outbound connection'
+            });
         }
     }
 

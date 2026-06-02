@@ -57,9 +57,12 @@ function setup() {
         module.exports = {};
     `);
 
-    // HIGH: reads secret env vars (no CRITICAL pattern).
+    // HIGH (but not CRITICAL): a non-config-loader reading a credential file
+    // (.npmrc) with no exfil channel — credential-file read is HIGH on its own,
+    // but only CRITICAL when paired with an outbound connection.
     mkpkg('highpkg', `
-        const t = process.env.NPM_TOKEN; const a = process.env.AWS_SECRET_ACCESS_KEY;
+        const fs = require('fs');
+        try { fs.readFileSync('.npmrc', 'utf8'); } catch (e) {}
         module.exports = {};
     `);
 
@@ -136,6 +139,21 @@ function run() {
     check(isPackageManagerEntry('/usr/bin/yarn') === true, 'detects yarn launcher');
     check(isPackageManagerEntry('/app/node_modules/evilpkg/index.js') === false, 'does NOT flag a dependency entry');
     check(isPackageManagerEntry('/app/server.js') === false, 'does NOT flag ordinary app code');
+
+    // --- credential-theft scoring refinement (pure) ---
+    console.log('\npatternMatcher — secret-env read is HIGH only with exfil');
+    const { detectCredentialTheft } = require('../src/patterns/patternMatcher');
+    const sig = (type, pkg, metadata) => ({ type, package: pkg, version: '1', metadata: metadata || {} });
+    const onlyEnv = detectCredentialTheft([sig('ENV_ACCESS', 'a', { variable: 'NPM_TOKEN' })]);
+    check(onlyEnv.some(i => i.type === 'SECRET_ENV_ACCESS' && i.severity === 'MEDIUM') &&
+        !onlyEnv.some(i => i.severity === 'HIGH'),
+        'bare secret-env read is MEDIUM, not HIGH (no false-positive on benign cred consumers)');
+    const envPlusNet = detectCredentialTheft([
+        sig('ENV_ACCESS', 'b', { variable: 'AWS_SECRET_ACCESS_KEY' }),
+        sig('HTTPS_REQUEST', 'b', { host: 'x' })
+    ]);
+    check(envPlusNet.some(i => i.type === 'SECRET_ENV_EXFIL' && i.severity === 'HIGH'),
+        'secret-env read + outbound connection is HIGH (credential exfiltration)');
 
     // --- DNS query parsing (pure; no strace needed) ---
     console.log('\nstraceRunner — DNS wire-format parsing from strace output');

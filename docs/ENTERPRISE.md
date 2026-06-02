@@ -71,8 +71,8 @@ level is at or above it fails the build (exit code `1`, else `0`).
 
 | fail-level | Fails on | Posture |
 |---|---|---|
-| `critical` (current default) | CRITICAL only | Most conservative; lowest false-positive rate; blocks only near-certain malice (e.g. credential read + exfiltration). |
-| `high` | HIGH + CRITICAL | Recommended once tuned. On the project's benchmark this caught every modeled attack with zero false positives, but that corpus is synthetic — validate against your own dependency tree first. |
+| `high` (**default**) | HIGH + CRITICAL | Recommended. On the project's corpora this caught every modeled attack at **100%** with **0% false positives across 71 real packages**. Corpora are limited — validate against your own dependency tree. |
+| `critical` | CRITICAL only | Most conservative; blocks only near-certain malice (credential read + exfiltration). Catches far less; use if you need an extremely low false-positive bar. |
 | `medium` / `low` | broader | Noisier; useful for investigation, not as a hard gate. |
 
 **Recommended rollout:** start in **report-only** (collect SARIF, don't fail

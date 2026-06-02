@@ -28,7 +28,7 @@ function parseArgs() {
     const options = {
         output: null,        // SARIF output path
         enforce: true,       // Always enforce in CI mode
-        failLevel: 'critical', // minimum level to fail on
+        failLevel: 'high', // minimum level to fail on (recommended gate; see docs)
         configPath: null,
         skipLow: true,       // Skip LOW-risk signals in SARIF (noise reduction)
         command: null,
