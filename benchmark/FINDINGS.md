@@ -8,62 +8,71 @@ async-deferred exfil) and on ordinary legitimate dependencies (dotenv-like confi
 loader, HTTPS API client, file logger, config reader, build tool that spawns a
 subprocess, analytics SDK, pure util).
 
-This is a **first, synthetic** corpus — useful for measuring the engine's
-behavior and regressions, not yet a claim about real-world efficacy. Replacing
-it with real malicious packages (in a sandbox) is the Stage-2 follow-up.
+This is a **first, synthetic** corpus -- useful for measuring the engine's
+behavior and catching regressions, not yet a claim about real-world efficacy.
+Replacing it with real malicious packages (in a sandbox) is the Stage-2 follow-up.
 
 ## Detection vs false positives by enforcement threshold
 
+Numbers below are **after** fixing the `ENV_ACCESS`-flood-on-spawn bug (see
+"Already fixed" -- that fix removed an artifact that was inflating detection).
+
 | Threshold | Recall (catch rate) | Precision | FP rate | F1 |
 |---|---|---|---|---|
-| **critical-only (<30) — DEFAULT GATE** | **43%** (3/7) | 75% | 14% | 0.55 |
-| high+ (<60) | 43% | 75% | 14% | 0.55 |
-| medium+ (<80) | 71% | 71% | 29% | 0.71 |
+| **critical-only (<30) -- DEFAULT GATE** | **0%** (0/7) | - | 0% | 0.00 |
+| high+ (<60) | 29% (2/7) | 100% | 0% | 0.44 |
+| medium+ (<80) | 71% (5/7) | 71% | 29% | 0.71 |
 | medium+ OR pattern hit | 71% | 63% | 43% | 0.67 |
+
+> For context, *before* the env-flood fix the default gate appeared to catch
+> 43%. That number was fake: subprocess-spawning packages (malicious **and**
+> benign) were floored to score 0 by the bug. Removing it revealed the true
+> default-gate detection: **zero**.
 
 ## Headline findings
 
-1. **The default CI gate (`fail-level=critical`) catches only 43% of attacks.**
-   DNS tunneling (score 89), obfuscated loader (82), typosquat (70), and
-   async-deferred exfil (75) all pass the default gate unblocked. A team using
-   the documented default would get a green build on 4 of 7 realistic attacks.
+1. **With the documented default (`fail-level=critical`), bheeshma blocks 0% of
+   these attacks.** Every fixture lands at HIGH/MEDIUM/LOW, none at CRITICAL.
+   A team using the default CI configuration would get a green build on all 7.
+   **The default gate must be re-tuned (or re-documented) before this is safe to
+   recommend.**
 
-2. **The attacks that *are* caught are caught for the wrong reason.** The three
-   CRITICAL detections (shai-hulud, crypto-miner, reverse-shell) all hit score 0
-   primarily because they spawn a child process — see bug #4 below — not because
-   the engine reasoned about credential-read-plus-exfil.
+2. **No score threshold cleanly separates malicious from benign.** Post-fix,
+   malicious scores span 41-89 and benign span 72-97 -- heavy overlap in the
+   70-89 band (a benign analytics SDK at 72 vs a malicious typosquat at 70).
+   Additive scoring conflates *volume of activity* with *maliciousness*.
 
-3. **No score threshold cleanly separates malicious from benign.** Malicious
-   scores span 0–89; benign span 72–97. The 70–89 band contains both a benign
-   analytics SDK and a malicious typosquat. Additive scoring conflates *volume of
-   activity* with *maliciousness*.
+3. **The most dangerous classes score LOW.** DNS tunneling (89) and obfuscated
+   loaders (87) -- high-signal attacks the marketing highlights -- barely move
+   the score, because a single high-weight behavior cannot outvote the additive
+   baseline. Correlation, not summation, is the right model.
 
-4. **False positive: a benign build tool scores 0 / CRITICAL** and would FAIL the
-   default gate. Root cause: spawning a subprocess makes Node enumerate the
-   entire environment to build the child's env; `envHook`'s get-trap records a
-   separate `ENV_ACCESS` signal for **every** environment variable (60+ here),
-   each −5, flooring the score to 0. Any subprocess-spawning package looks
-   CRITICAL. This is the single most important correctness/scoring bug surfaced.
+4. **`high+` is the only zero-false-positive operating point** (100% precision)
+   but catches just 29%. `medium+` reaches 71% recall at a 29% false-positive
+   rate. There is no good single-threshold setting today -- the quantified case
+   for combination/pattern-based scoring.
 
 ## Concrete, prioritized fixes this evidence justifies
 
-- **[P1] Fix the `ENV_ACCESS` flood on spawn.** Distinguish a package reading a
-  specific env var from Node's internal full-environment enumeration during
-  `child_process` setup (e.g. ignore env reads originating in `child_process`
-  internals, collapse bulk enumeration, or weight only sensitive var names).
-  Without this, both detection (inflated) and false positives are driven by an
-  artifact, not by behavior.
-- **[P2] Replace additive scoring with combination/pattern weighting.** The real
-  threat signal is *correlation* (credential read **and** outbound network;
-  obfuscation **and** exec), not the sum of independent weights. DNS tunneling
-  and obfuscation must carry materially more weight on their own.
-- **[Docs] Re-tune the default gate or stop calling critical-only the default.**
-  At minimum document that critical-only is permissive; consider `medium+` (or a
-  pattern-OR-score rule) as the recommended CI posture, with the FP tradeoff
-  stated honestly.
+- **[P2 -- keystone] Replace additive scoring with combination/pattern weighting.**
+  The real threat signal is *correlation* (credential read **and** outbound
+  network; obfuscation **and** exec; DNS to high-entropy host **and** a prior
+  file read), not a sum of independent weights. Single high-severity behaviors
+  (obfuscation, DNS tunneling) must be able to flag on their own.
+- **[Docs/Config] Re-tune the default gate.** Critical-only blocks nothing here.
+  Recommend at least `high+`, document the recall/FP tradeoff honestly, and ship
+  a tuned default once scoring is fixed.
 
 ## Already fixed as a result of building this benchmark
 
+- **`ENV_ACCESS` flood on `spawn` (false positives + fake detection).** Spawning
+  a subprocess makes Node enumerate the entire environment to build the child's
+  env (`copyProcessEnvToEnv` in `node:child_process`); `envHook`'s get-trap was
+  recording one `ENV_ACCESS` per variable (60+), flooring the score to 0. This
+  made every subprocess-spawning package look CRITICAL -- both a benign
+  build-tool false positive and fake "detection" of spawn-using malware. Fixed
+  by skipping env reads whose stack originates in `child_process` internals (a
+  deliberate `process.env.X` read by the package has no such frame).
 - **DNS hook silently died after the first `init()`/`teardown()` cycle**
   (`dnsHook.uninstall` never cleared its saved originals, so re-install
   short-circuited). Fixed; the harness DNS test was rewritten from a vacuous

@@ -26,11 +26,20 @@ Honesty principle: never claim more than the in-process design can deliver (tele
 - `src/worker-bootstrap.js` — `.unref()` flush timer.
 - `test/harness.js` — added async-deferred capture+attribution regression test.
 
+## Session 2 progress (commit after 7dc7170 — see `git log`)
+Built the efficacy benchmark + fixed two more bugs it exposed:
+- `benchmark/run.js` + `benchmark/fixtures.js` + `benchmark/FINDINGS.md` + `benchmark/results.json` — labeled corpus (7 malicious + 7 benign), detection/FP across thresholds.
+- Fixed `dnsHook.uninstall` not clearing originals (DNS hook silently died after first init/teardown). Rewrote vacuous DNS test into a real assertion.
+- Fixed `ENV_ACCESS` flood on spawn in `envHook` (Node's full-env copy via `copyProcessEnvToEnv` was recording 60+ signals → flooring score → benign spawners looked CRITICAL + fake detection). Now skips reads whose stack is in `child_process` internals.
+- Honest README: dropped "strace/catches what static misses", reframed as defense-in-depth telemetry, linked THREAT_MODEL + FINDINGS, badge 41→44.
+- Tests: 44/44 pass.
+
+**KEY EVIDENCE (benchmark, post-fix):** default CI gate (`fail-level=critical`) detects **0%** of attacks (the prior 43% was the env-flood artifact). `high+`=29% recall/100% precision; `medium+`=71% recall/29% FP. No clean threshold — malicious 41-89, benign 72-97 overlap. DNS-tunnel(89)/obfuscation(87) score LOW. → proves the P2 non-additive/combination scoring redesign is THE keystone, and the default gate must be re-tuned.
+
 ## Immediate next steps (when resuming)
-1. Finish honest README repositioning (drop "strace/catches what static misses" overclaim; link THREAT_MODEL.md; badge says 41/41 but it's now 44).
-2. Build the **efficacy benchmark harness** (Stage 2 keystone, report-only): measure real detection rate vs known-malware corpus + false-positive rate vs large benign trees. De-risks the whole ladder.
-3. Then P1 reliability: node:test runner replacing sleep()-based harness + coverage; TypeScript migration (index.d.ts can drift); fix obfuscation-scan-vs-report race (setImmediate scan may not finish before exit — watch fsHook reentrancy).
-4. P2: non-additive scoring; scan all package files not just entry point.
+1. **[P2 keystone] Redesign scoring** — combination/correlation weighting (credential-read + outbound; obfuscation + exec; high-entropy DNS), let single high-severity behaviors flag alone. Re-run benchmark to validate separation improves. THEN re-tune default gate.
+2. P1 reliability: node:test runner replacing sleep()-based harness + coverage; TypeScript migration (index.d.ts can drift); fix obfuscation-scan-vs-report race (setImmediate scan may not finish before exit — watch fsHook reentrancy).
+3. P2 cont'd: scan all package files not just entry point.
 
 ## Open decision for user
 Whether/when to push `harden/p0-correctness` and open a PR (currently held). Options discussed: hold / push+PR / push only after README made honest.

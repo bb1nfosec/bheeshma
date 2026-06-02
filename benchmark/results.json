@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-02T03:45:35.699Z",
+  "generatedAt": "2026-06-02T04:43:26.575Z",
   "corpus": {
     "malicious": 7,
     "benign": 7
@@ -9,8 +9,8 @@
       "name": "pkg-shai-hulud-sim",
       "label": "malicious",
       "attack": "Install-time secret theft (Shai-Hulud / event-stream class)",
-      "score": 0,
-      "riskLevel": "CRITICAL",
+      "score": 41,
+      "riskLevel": "HIGH",
       "signalTypes": [
         "ENV_ACCESS",
         "FS_READ",
@@ -24,8 +24,8 @@
       "name": "pkg-crypto-miner-sim",
       "label": "malicious",
       "attack": "Cryptojacking (ua-parser-js class)",
-      "score": 0,
-      "riskLevel": "CRITICAL",
+      "score": 55,
+      "riskLevel": "HIGH",
       "signalTypes": [
         "ENV_ACCESS",
         "FS_READ",
@@ -51,10 +51,9 @@
       "name": "pkg-reverse-shell-sim",
       "label": "malicious",
       "attack": "Reverse-shell backdoor (dependency-confusion class)",
-      "score": 0,
-      "riskLevel": "CRITICAL",
+      "score": 69,
+      "riskLevel": "MEDIUM",
       "signalTypes": [
-        "ENV_ACCESS",
         "FS_READ",
         "SHELL_EXEC",
         "NET_CONNECT"
@@ -154,14 +153,13 @@
       "name": "pkg-build-tool",
       "label": "benign",
       "attack": "Build tool that legitimately spawns a child process (tsc-like)",
-      "score": 0,
-      "riskLevel": "CRITICAL",
+      "score": 77,
+      "riskLevel": "MEDIUM",
       "signalTypes": [
-        "ENV_ACCESS",
         "FS_READ",
         "SHELL_EXEC"
       ],
-      "patternFlagged": true
+      "patternFlagged": false
     },
     {
       "name": "pkg-telemetry-sdk",
@@ -192,25 +190,25 @@
   "matrices": {
     "criticalOnly": {
       "label": "critical-only (<30)  [DEFAULT GATE]",
-      "tp": 3,
-      "fp": 1,
-      "tn": 6,
-      "fn": 4,
-      "recall": 0.42857142857142855,
-      "precision": 0.75,
-      "fpRate": 0.14285714285714285,
-      "f1": 0.5454545454545454
+      "tp": 0,
+      "fp": 0,
+      "tn": 7,
+      "fn": 7,
+      "recall": 0,
+      "precision": 0,
+      "fpRate": 0,
+      "f1": 0
     },
     "highPlus": {
       "label": "high+ (<60)",
-      "tp": 3,
-      "fp": 1,
-      "tn": 6,
-      "fn": 4,
-      "recall": 0.42857142857142855,
-      "precision": 0.75,
-      "fpRate": 0.14285714285714285,
-      "f1": 0.5454545454545454
+      "tp": 2,
+      "fp": 0,
+      "tn": 7,
+      "fn": 5,
+      "recall": 0.2857142857142857,
+      "precision": 1,
+      "fpRate": 0,
+      "f1": 0.4444444444444445
     },
     "mediumPlus": {
       "label": "medium+ (<80)",
