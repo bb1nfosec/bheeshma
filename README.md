@@ -78,7 +78,7 @@ Add to your CI pipeline — one YAML line:
 - uses: bb1nfosec/bheeshma/.github/actions/bheeshma@main
   with:
     command: 'npm test'
-    fail-level: 'critical'
+    fail-level: 'high'
 ```
 
 Every PR will now show **runtime behavior annotations** from bheeshma directly in the GitHub diff view.
@@ -121,7 +121,7 @@ jobs:
       - uses: bb1nfosec/bheeshma/.github/actions/bheeshma@main
         with:
           command: 'npm test'
-          fail-level: 'critical'    # fail on CRITICAL (default)
+          fail-level: 'high'        # fail on HIGH+ (default; see docs/ENTERPRISE.md)
           upload-sarif: 'true'      # upload to Code Scanning
 ```
 
@@ -130,7 +130,7 @@ jobs:
 | Input | Default | Description |
 |-------|---------|-------------|
 | `command` | _(required)_ | Command to run under monitoring |
-| `fail-level` | `critical` | Minimum risk level to fail build (`critical`, `high`, `medium`, `low`) |
+| `fail-level` | `high` | Minimum risk level to fail build (`critical`, `high`, `medium`, `low`) |
 | `config` | `''` | Path to `.bheeshmarc.json` |
 | `sarif-output` | `bheeshma-results.sarif` | SARIF output file path |
 | `skip-low` | `true` | Skip LOW-risk signals in SARIF (reduces noise) |

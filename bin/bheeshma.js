@@ -6,7 +6,7 @@
  * Usage:
  *   bheeshma [options] -- <command>
  *   bheeshma --format json --output report.json -- node app.js
- *   bheeshma --enforce -- node app.js          (CI mode - exit 1 on CRITICAL)
+ *   bheeshma --enforce -- node app.js          (CI mode - exit 1 at/above fail-level, default high)
  *   bheeshma --format sarif --output results.sarif -- node app.js
  *   bheeshma install [-- sarif]                (monitor npm install)
  *   bheeshma ci -- <command>                   (CI-optimized mode)
@@ -47,6 +47,7 @@ function parseArgs() {
         format: 'cli',
         output: null,
         enforce: false,
+        failLevel: 'high',
         alertWebhook: null,
         configPath: null,
         scriptPath: null,
@@ -66,6 +67,9 @@ function parseArgs() {
         } else if (arg === '--enforce') {
             options.enforce = true;
             i += 1;
+        } else if (arg === '--fail-level') {
+            options.failLevel = args[i + 1];
+            i += 2;
         } else if (arg === '--alert-webhook') {
             options.alertWebhook = args[i + 1];
             i += 2;
@@ -119,7 +123,8 @@ Options:
   --format <cli|json|html|sarif>  Output format (default: cli)
   --output <file>                 Write report to file instead of stdout
   -o <file>                       Alias for --output
-  --enforce                       Exit code 1 if any package is CRITICAL
+  --enforce                       Exit code 1 if any package is at/above fail-level
+  --fail-level <critical|high|medium|low>  Min risk to fail on (default: high)
   --alert-webhook <url>           POST alert to webhook on CRITICAL findings
   --config <path>                 Path to .bheeshmarc.json config file
   --help, -h                      Show this help message
@@ -280,7 +285,7 @@ async function main() {
 
         // Enforcement mode: exit(1) if any package is CRITICAL
         if (options.enforce) {
-            const enforcement = bheeshma.enforcePolicy();
+            const enforcement = bheeshma.enforcePolicy({ failLevel: options.failLevel });
             if (!enforcement.passed) {
                 console.error(`\n[BHEESHMA] ${enforcement.message}`);
                 for (const pkg of enforcement.criticalPackages) {
@@ -306,7 +311,7 @@ async function main() {
             const config = bheeshma.getConfig();
             const webhookUrl = options.alertWebhook || (config && config.alertWebhook);
             if (webhookUrl) {
-                const enforcement = bheeshma.enforcePolicy();
+                const enforcement = bheeshma.enforcePolicy({ failLevel: options.failLevel });
                 if (!enforcement.passed) {
                     bheeshma.sendAlertWebhook(webhookUrl, enforcement.criticalPackages);
                 }
