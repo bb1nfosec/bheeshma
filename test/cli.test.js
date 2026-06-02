@@ -155,6 +155,15 @@ function run() {
     check(envPlusNet.some(i => i.type === 'SECRET_ENV_EXFIL' && i.severity === 'HIGH'),
         'secret-env read + outbound connection is HIGH (credential exfiltration)');
 
+    // --- persistence detection (pure) ---
+    console.log('\npatternMatcher — persistence (writing to shell rc / cron / ssh)');
+    const { detectBackdoors } = require('../src/patterns/patternMatcher');
+    const persist = detectBackdoors([sig('FS_WRITE', 'p', { path: '/home/u/.bashrc' })]);
+    check(persist.some(i => i.type === 'PERSISTENCE_MECHANISM' && i.severity === 'HIGH'),
+        'writing to a persistence location (.bashrc) is flagged HIGH');
+    check(detectBackdoors([sig('FS_WRITE', 'p', { path: '/tmp/app/cache.json' })]).length === 0,
+        'writing to an ordinary path is not flagged');
+
     // --- DNS query parsing (pure; no strace needed) ---
     console.log('\nstraceRunner — DNS wire-format parsing from strace output');
     const { parseDnsNames } = require('../src/sandbox/straceRunner');
