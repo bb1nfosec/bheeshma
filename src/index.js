@@ -25,6 +25,7 @@ const { analyzePatterns } = require('./patterns/patternMatcher');
 const resolver = require('./attribution/resolver');
 const isWhitelisted = resolver.isWhitelisted;
 const getPackageFromStack = resolver.getPackageFromStack;
+const getCurrentPackage = resolver.getCurrentPackage;
 const clearResolverCache = resolver.clearCache;
 const { mergeConfig, validateConfig } = require('./config/schema');
 const detector = require('./obfuscation/detector');
@@ -346,25 +347,38 @@ function recordSignal(signal) {
         }
     }
 
-    // Trigger obfuscation scan for new packages (once per package)
+    // Trigger obfuscation scan for new packages (once per package).
+    // Run SYNCHRONOUSLY so the OBFUSCATION_DETECTED signal reliably lands before
+    // the report is generated — a setImmediate scan loses that race in short
+    // scripts and on process exit (setImmediate callbacks don't run during
+    // 'exit'). Resolve the package directory from the live stack first, then
+    // fall back to the async context: async-deferred signals have no
+    // node_modules frame on their stack but DO carry the ALS package context,
+    // so the previous stack-only lookup silently skipped the scan for them.
+    //
+    // Re-entrancy is bounded: scanPackage reads the entry file via the hooked
+    // fs, which calls recordSignal again, but obfuscationScannedPackages already
+    // contains this package (added below before scanning), so it won't re-scan.
     if (signal.package && !obfuscationScannedPackages.has(signal.package)) {
         obfuscationScannedPackages.add(signal.package);
-        // Run scan asynchronously (non-blocking) to avoid slowing the hooked call
-        // Use setImmediate so the current hook call completes first
-        setImmediate(() => {
-            try {
-                if (signal.stackTrace) {
-                    const pkgAttribution = getPackageFromStack(signal.stackTrace);
-                    if (pkgAttribution && pkgAttribution.path) {
-                        // Pass the raw signals array directly (not the recorder)
-                        // to avoid infinite recursion through recordSignal
-                        scanPackage(signal.package, pkgAttribution.path, signals, currentConfig);
-                    }
-                }
-            } catch (err) {
-                // Obfuscation scan failure should never break anything
+        try {
+            let pkgPath = null;
+            if (signal.stackTrace) {
+                const fromStack = getPackageFromStack(signal.stackTrace);
+                if (fromStack && fromStack.path) pkgPath = fromStack.path;
             }
-        });
+            if (!pkgPath && typeof getCurrentPackage === 'function') {
+                const fromContext = getCurrentPackage();
+                if (fromContext && fromContext.path) pkgPath = fromContext.path;
+            }
+            if (pkgPath) {
+                // Pass the raw signals array (not the recorder) — scanPackage's
+                // own pushes must bypass recordSignal to avoid recursion.
+                scanPackage(signal.package, pkgPath, signals, currentConfig);
+            }
+        } catch (err) {
+            // Obfuscation scan failure should never break anything.
+        }
     }
 
     return true;

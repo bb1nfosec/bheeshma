@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-02T04:51:59.841Z",
+  "generatedAt": "2026-06-02T05:01:33.154Z",
   "corpus": {
     "malicious": 7,
     "benign": 7
@@ -64,13 +64,14 @@
       "name": "pkg-obfuscated-loader-sim",
       "label": "malicious",
       "attack": "Obfuscated payload + HTTP GET exfil",
-      "score": 87,
-      "riskLevel": "LOW",
+      "score": 59,
+      "riskLevel": "HIGH",
       "signalTypes": [
         "FS_READ",
-        "HTTP_REQUEST"
+        "HTTP_REQUEST",
+        "OBFUSCATION_DETECTED"
       ],
-      "patternFlagged": false
+      "patternFlagged": true
     },
     {
       "name": "expresss",
@@ -201,36 +202,36 @@
     },
     "highPlus": {
       "label": "high+ (<60)",
-      "tp": 6,
+      "tp": 7,
       "fp": 0,
       "tn": 7,
-      "fn": 1,
-      "recall": 0.8571428571428571,
+      "fn": 0,
+      "recall": 1,
       "precision": 1,
       "fpRate": 0,
-      "f1": 0.923076923076923
+      "f1": 1
     },
     "mediumPlus": {
       "label": "medium+ (<80)",
-      "tp": 6,
+      "tp": 7,
       "fp": 2,
       "tn": 5,
-      "fn": 1,
-      "recall": 0.8571428571428571,
-      "precision": 0.75,
+      "fn": 0,
+      "recall": 1,
+      "precision": 0.7777777777777778,
       "fpRate": 0.2857142857142857,
-      "f1": 0.7999999999999999
+      "f1": 0.8750000000000001
     },
     "scoreOrPattern": {
       "label": "medium+ OR pattern hit (best available today)",
-      "tp": 6,
+      "tp": 7,
       "fp": 3,
       "tn": 4,
-      "fn": 1,
-      "recall": 0.8571428571428571,
-      "precision": 0.6666666666666666,
+      "fn": 0,
+      "recall": 1,
+      "precision": 0.7,
       "fpRate": 0.42857142857142855,
-      "f1": 0.75
+      "f1": 0.8235294117647058
     }
   }
 }

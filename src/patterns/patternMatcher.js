@@ -236,6 +236,34 @@ function detectDataExfiltration(signals) {
         }
     }
 
+    // Obfuscated code that ALSO performs outbound network activity is a strong
+    // hidden-payload indicator. Obfuscation alone is suspicious but additive
+    // scoring leaves it at MEDIUM; pairing it with an exfil channel (HTTP(S),
+    // raw TCP, or DNS) elevates it to HIGH so the gate reacts.
+    const obfuscatedPackages = new Set(
+        signals
+            .filter(s => s.type === SignalType.OBFUSCATION_DETECTED && s.package)
+            .map(s => s.package)
+    );
+    for (const pkg of obfuscatedPackages) {
+        const hasNetwork = signals.some(s =>
+            s.package === pkg && (
+                s.type === SignalType.HTTP_REQUEST ||
+                s.type === SignalType.HTTPS_REQUEST ||
+                s.type === SignalType.NET_CONNECT ||
+                s.type === SignalType.DNS_QUERY
+            )
+        );
+        if (hasNetwork) {
+            indicators.push({
+                type: 'OBFUSCATED_NETWORK_ACTIVITY',
+                severity: 'HIGH',
+                package: pkg,
+                indicator: 'Obfuscated code performing outbound network activity'
+            });
+        }
+    }
+
     return indicators;
 }
 

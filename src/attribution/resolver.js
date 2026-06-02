@@ -15,6 +15,12 @@
 const fs = require('fs');
 const path = require('path');
 
+// Pristine readFileSync captured at module load — BEFORE any hook installs.
+// The resolver reads package.json files to identify packages; using the hooked
+// fs would record spurious FS_READ signals (bheeshma's own attribution lookups
+// attributed to the package being identified). This reference bypasses the hook.
+const pristineReadFileSync = fs.readFileSync;
+
 /**
  * Async attribution context.
  *
@@ -248,7 +254,7 @@ function readPackageJson(packageDir) {
             return null;
         }
 
-        const content = fs.readFileSync(packageJsonPath, 'utf8');
+        const content = pristineReadFileSync(packageJsonPath, 'utf8');
         const packageJson = JSON.parse(content);
         packageCache.set(packageDir, packageJson);
         return packageJson;

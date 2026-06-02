@@ -34,12 +34,22 @@ Built the efficacy benchmark + fixed two more bugs it exposed:
 - Honest README: dropped "strace/catches what static misses", reframed as defense-in-depth telemetry, linked THREAT_MODEL + FINDINGS, badge 41→44.
 - Tests: 44/44 pass.
 
-**KEY EVIDENCE (benchmark, post-fix):** default CI gate (`fail-level=critical`) detects **0%** of attacks (the prior 43% was the env-flood artifact). `high+`=29% recall/100% precision; `medium+`=71% recall/29% FP. No clean threshold — malicious 41-89, benign 72-97 overlap. DNS-tunnel(89)/obfuscation(87) score LOW. → proves the P2 non-additive/combination scoring redesign is THE keystone, and the default gate must be re-tuned.
+**KEY EVIDENCE (benchmark progression, all measured):** default gate (critical-only) 43%*→0%→29%; **high+ gate 43%*→29%→71%→86% recall at 100% precision / 0% FP (F1 0.92)**. (*the 43% "as shipped" was the env-flood artifact.) Two more wins landed this session: correlation-aware scoring (pattern severity caps trust score) + DNS-tunneling detection. Only obfuscated-loader (87, LOW) still missed.
+
+## Done this session (commits 2523238, 4484d18, 043b861, f2f7339)
+- Efficacy benchmark + FINDINGS + results.json
+- Fixed dnsHook reinstall bug + vacuous DNS test
+- Fixed ENV_ACCESS flood on spawn
+- Honest README + THREAT_MODEL
+- Correlation-aware scoring (pattern severity → score cap; dotenv LOW exemption preserved)
+- DNS tunneling/exfil detection (via existing dnsHook indicators → dataExfiltration pattern)
 
 ## Immediate next steps (when resuming)
-1. **[P2 keystone] Redesign scoring** — combination/correlation weighting (credential-read + outbound; obfuscation + exec; high-entropy DNS), let single high-severity behaviors flag alone. Re-run benchmark to validate separation improves. THEN re-tune default gate.
-2. P1 reliability: node:test runner replacing sleep()-based harness + coverage; TypeScript migration (index.d.ts can drift); fix obfuscation-scan-vs-report race (setImmediate scan may not finish before exit — watch fsHook reentrancy).
-3. P2 cont'd: scan all package files not just entry point.
+1. **Fix obfuscation-scan race** — OBFUSCATION_DETECTED scheduled via setImmediate (index.js recordSignal) can lose the race with report gen; run/await before report (WATCH fsHook reentrancy — scan reads files via hooked fs). Add an obfuscation+network correlation pattern so it reaches HIGH (additive alone ≈62/MEDIUM). Target: high+ recall 86%→100%.
+2. **Change recommended/default gate to `high+`** (critical-only catches only 29%); document recall/FP tradeoff. Touches bin/bheeshma-ci.js default failLevel + action.yml + README.
+3. P1 reliability: node:test runner replacing sleep()-based harness + coverage; TypeScript migration (index.d.ts can drift).
+4. P2 cont'd: scan all package files not just entry point.
+5. Decide push/PR of branch harden/p0-correctness (still held).
 
 ## Open decision for user
 Whether/when to push `harden/p0-correctness` and open a PR (currently held). Options discussed: hold / push+PR / push only after README made honest.
