@@ -34,3 +34,7 @@ build/
 .tmp/
 temp/
 bheeshma-results.sarif
+
+# Real malware samples + their results must NEVER be committed
+benchmark/samples/
+benchmark/malware-results.json
