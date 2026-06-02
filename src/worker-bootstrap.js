@@ -75,8 +75,13 @@ if (isMainThread) {
                 }
             }
 
-            // Periodic flush every second
+            // Periodic flush every second. unref() so this timer never keeps
+            // the worker (or its event loop) alive past its natural exit — the
+            // exit/beforeExit handlers below perform the final flush.
             const flushInterval = setInterval(flushSignals, 1000);
+            if (typeof flushInterval.unref === 'function') {
+                flushInterval.unref();
+            }
 
             // Final flush on worker exit
             process.on('exit', () => {

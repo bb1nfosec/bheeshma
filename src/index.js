@@ -15,7 +15,7 @@ const netHook = require('./hooks/netHook');
 const childProcHook = require('./hooks/childProcHook');
 const httpHook = require('./hooks/httpHook');
 const dnsHook = require('./hooks/dnsHook');
-const { calculateAllScores, findCriticalPackages, getRiskLevel } = require('./scoring/trustScore');
+const { calculateAllScores, findCriticalPackages, findViolatingPackages, getRiskLevel } = require('./scoring/trustScore');
 const cliFormatter = require('./output/cliFormatter');
 const jsonFormatter = require('./output/jsonFormatter');
 const htmlFormatter = require('./output/htmlFormatter');
@@ -25,6 +25,7 @@ const { analyzePatterns } = require('./patterns/patternMatcher');
 const resolver = require('./attribution/resolver');
 const isWhitelisted = resolver.isWhitelisted;
 const getPackageFromStack = resolver.getPackageFromStack;
+const getCurrentPackage = resolver.getCurrentPackage;
 const clearResolverCache = resolver.clearCache;
 const { mergeConfig, validateConfig } = require('./config/schema');
 const detector = require('./obfuscation/detector');
@@ -147,6 +148,10 @@ function init(options = {}) {
         failed.push('dnsHook');
     }
 
+    // Seed the async attribution context at module-load time so behavior
+    // deferred across async boundaries is still attributed to the right package.
+    installModuleContextHook();
+
     // Set up worker thread signal collection if available
     setupWorkerSignalCollection();
 
@@ -219,6 +224,69 @@ function setupWorkerSignalCollection() {
 }
 
 /**
+ * Original Module._load, saved so teardown() can restore it.
+ */
+let originalModuleLoad = null;
+
+/**
+ * Seed the async attribution context by wrapping Module._load.
+ *
+ * When a file inside node_modules is loaded, we resolve which package owns it
+ * and run the load within that package's async context (resolver context store).
+ * Because AsyncLocalStorage propagates across timers, promises, and I/O
+ * callbacks, any work the module schedules during initialization stays
+ * attributed to it — even when the synchronous stack has unwound. Hooks still
+ * prefer live-stack attribution; this only fills the gap when the stack can't.
+ *
+ * Heavily guarded: resolution failures fall through to the original loader,
+ * and core/builtin requires (no node_modules in the path) take the fast path.
+ */
+function installModuleContextHook() {
+    try {
+        if (originalModuleLoad) return;
+        const Module = require('module');
+        originalModuleLoad = Module._load;
+
+        Module._load = function (request, parent, isMain) {
+            let pkg = null;
+            try {
+                const filename = Module._resolveFilename(request, parent, isMain);
+                if (typeof filename === 'string' && filename.indexOf('node_modules') !== -1) {
+                    pkg = resolver.getPackageFromPath(filename);
+                }
+            } catch (err) {
+                // Resolution can throw for unresolvable specifiers — fall through.
+            }
+
+            if (pkg) {
+                return resolver.runWithPackageContext(
+                    pkg,
+                    () => originalModuleLoad.call(this, request, parent, isMain)
+                );
+            }
+            return originalModuleLoad.call(this, request, parent, isMain);
+        };
+    } catch (err) {
+        // Never let context seeding break module loading.
+        originalModuleLoad = null;
+    }
+}
+
+/**
+ * Restore the original Module._load (used by teardown).
+ */
+function uninstallModuleContextHook() {
+    try {
+        if (originalModuleLoad) {
+            require('module')._load = originalModuleLoad;
+            originalModuleLoad = null;
+        }
+    } catch (err) {
+        // Best effort.
+    }
+}
+
+/**
  * Track which packages have been scanned for obfuscation.
  * Maps package name → boolean (true = scanned).
  * Scanning happens once per package, on first signal.
@@ -279,25 +347,38 @@ function recordSignal(signal) {
         }
     }
 
-    // Trigger obfuscation scan for new packages (once per package)
+    // Trigger obfuscation scan for new packages (once per package).
+    // Run SYNCHRONOUSLY so the OBFUSCATION_DETECTED signal reliably lands before
+    // the report is generated — a setImmediate scan loses that race in short
+    // scripts and on process exit (setImmediate callbacks don't run during
+    // 'exit'). Resolve the package directory from the live stack first, then
+    // fall back to the async context: async-deferred signals have no
+    // node_modules frame on their stack but DO carry the ALS package context,
+    // so the previous stack-only lookup silently skipped the scan for them.
+    //
+    // Re-entrancy is bounded: scanPackage reads the entry file via the hooked
+    // fs, which calls recordSignal again, but obfuscationScannedPackages already
+    // contains this package (added below before scanning), so it won't re-scan.
     if (signal.package && !obfuscationScannedPackages.has(signal.package)) {
         obfuscationScannedPackages.add(signal.package);
-        // Run scan asynchronously (non-blocking) to avoid slowing the hooked call
-        // Use setImmediate so the current hook call completes first
-        setImmediate(() => {
-            try {
-                if (signal.stackTrace) {
-                    const pkgAttribution = getPackageFromStack(signal.stackTrace);
-                    if (pkgAttribution && pkgAttribution.path) {
-                        // Pass the raw signals array directly (not the recorder)
-                        // to avoid infinite recursion through recordSignal
-                        scanPackage(signal.package, pkgAttribution.path, signals, currentConfig);
-                    }
-                }
-            } catch (err) {
-                // Obfuscation scan failure should never break anything
+        try {
+            let pkgPath = null;
+            if (signal.stackTrace) {
+                const fromStack = getPackageFromStack(signal.stackTrace);
+                if (fromStack && fromStack.path) pkgPath = fromStack.path;
             }
-        });
+            if (!pkgPath && typeof getCurrentPackage === 'function') {
+                const fromContext = getCurrentPackage();
+                if (fromContext && fromContext.path) pkgPath = fromContext.path;
+            }
+            if (pkgPath) {
+                // Pass the raw signals array (not the recorder) — scanPackage's
+                // own pushes must bypass recordSignal to avoid recursion.
+                scanPackage(signal.package, pkgPath, signals, currentConfig);
+            }
+        } catch (err) {
+            // Obfuscation scan failure should never break anything.
+        }
     }
 
     return true;
@@ -313,15 +394,40 @@ function getSignals() {
 }
 
 /**
+ * Ingest signals collected by another process (the CI child preload).
+ *
+ * The signals were already whitelist-filtered at collection time in the child,
+ * so they are appended directly to the store for scoring/reporting here.
+ *
+ * @param {Array<object>} externalSignals - Serialized signals from a child
+ * @returns {number} Count of signals ingested
+ */
+function ingestSignals(externalSignals) {
+    if (!Array.isArray(externalSignals)) return 0;
+    let count = 0;
+    for (const signal of externalSignals) {
+        if (signal && typeof signal === 'object') {
+            signals.push(signal);
+            count++;
+        }
+    }
+    return count;
+}
+
+/**
  * Get calculated trust scores for all packages
  * 
  * @returns {Map} Trust scores by package
  */
 function getTrustScores() {
+    // Run correlated-pattern analysis so trust scores (and therefore policy
+    // enforcement, not just the report) reflect exfil/backdoor/crypto/etc.
+    const patternResults = analyzePatterns(signals, currentConfig ? currentConfig.patterns : {});
     return calculateAllScores(signals, {
         deduplicate: currentConfig ? currentConfig.performance.deduplicateSignals !== false : true,
         packageThresholds: currentConfig ? currentConfig.packageThresholds : {},
-        configThresholds: currentConfig ? currentConfig.thresholds : {}
+        configThresholds: currentConfig ? currentConfig.thresholds : {},
+        patternResults
     });
 }
 
@@ -366,28 +472,35 @@ function generateReport(format = 'cli') {
 }
 
 /**
- * Enforce policy — check if any package exceeds risk thresholds.
- * Returns an object with enforcement results suitable for CI.
- * 
- * @returns {object} { passed: boolean, criticalPackages: [], message: string }
+ * Enforce policy — fail if any package is at or above the configured fail level.
+ *
+ * @param {object} [options] - { failLevel: 'low'|'medium'|'high'|'critical' }
+ *   Defaults to 'critical' (conservative, lowest false-positive posture).
+ * @returns {object} { passed, failLevel, violatingPackages, criticalPackages, message }
+ *   `criticalPackages` is kept as an alias of `violatingPackages` for back-compat.
  */
-function enforcePolicy() {
+function enforcePolicy(options = {}) {
+    const failLevel = options.failLevel || 'critical';
     const scores = getTrustScores();
-    const critical = findCriticalPackages(scores, currentConfig);
+    const violating = findViolatingPackages(scores, failLevel);
 
-    if (critical.length === 0) {
+    if (violating.length === 0) {
         return {
             passed: true,
+            failLevel,
+            violatingPackages: [],
             criticalPackages: [],
-            message: 'All packages within acceptable risk thresholds'
+            message: `All packages within acceptable risk thresholds (fail-level: ${failLevel})`
         };
     }
 
-    const pkgList = critical.map(p => `${p.name}@${p.version} (score: ${p.score})`).join(', ');
+    const pkgList = violating.map(p => `${p.name}@${p.version} (score: ${p.score}, ${p.riskLevel})`).join(', ');
     return {
         passed: false,
-        criticalPackages: critical,
-        message: `POLICY VIOLATION: ${critical.length} package(s) exceed risk threshold: ${pkgList}`
+        failLevel,
+        violatingPackages: violating,
+        criticalPackages: violating,
+        message: `POLICY VIOLATION (fail-level: ${failLevel}): ${violating.length} package(s) at or above ${failLevel.toUpperCase()}: ${pkgList}`
     };
 }
 
@@ -474,6 +587,8 @@ function teardown() {
     if (dnsHook.uninstall()) uninstalled.push('dnsHook');
     else failed.push('dnsHook');
 
+    uninstallModuleContextHook();
+
     hooksInstalled = false;
     signals.length = 0;
     currentConfig = null;
@@ -528,5 +643,6 @@ module.exports = {
     sendAlertWebhook,
     teardown,
     monitor,
-    recordSignal
+    recordSignal,
+    ingestSignals
 };

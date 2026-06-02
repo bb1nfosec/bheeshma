@@ -3,7 +3,7 @@
 # BHEESHMA
 
 **Runtime Dependency Behavior Monitor for Node.js**
-*The strace for npm packages.*
+*See what your npm dependencies actually do when they run.*
 
 <img src="assets/bheeshma-demo.gif" alt="bheeshma catching a malicious npm package at runtime" width="680">
 
@@ -11,12 +11,12 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D14.0.0-brightgreen.svg)](https://nodejs.org/)
 [![CI](https://github.com/bb1nfosec/bheeshma/actions/workflows/ci.yml/badge.svg)](https://github.com/bb1nfosec/bheeshma/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-41%2F41%20passing-success.svg)]()
+[![Tests](https://img.shields.io/badge/tests-44%2F44%20passing-success.svg)]()
 [![Wall of Shame](https://img.shields.io/badge/Wall%20of%20Shame-20%20threats-red.svg)](https://bb1nfosec.github.io/bheeshma/)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-success.svg)]()
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-*Catches supply-chain attacks that static analysis misses.*
+*Runtime behavioral telemetry for your dependency tree — a defense-in-depth layer, not a replacement for static/graph scanners.*
 
 [Quick Start](#-30-second-quick-start) | [GitHub Actions](#-github-actions-integration) | [npm install Monitor](#-npm-install-monitor) | [Wall of Shame](#-wall-of-shame-dashboard) | [CLI](#cli-usage) | [Configuration](#configuration)
 
@@ -35,18 +35,28 @@ In 2025-2026, the npm ecosystem was hit by a wave of supply-chain attacks:
 | **Mini Shai-Hulud** | May 2026 | 84 TanStack packages compromised |
 | **CanisterWorm** | 2026 | Self-propagating, exfiltration + persistence |
 
-**Every major tool — Socket.dev, Snyk, Dependabot, npm audit — is pre-install static analysis.** They scan code *before* it runs. They cannot see what a package *actually does at runtime*.
+Static and registry-graph scanners (Socket.dev, Snyk, Dependabot, npm audit) reason about a package *before* it runs. BHEESHMA adds the complementary view: it **observes what your dependencies actually do when they execute** — env access, file I/O, network connections, DNS, subprocesses — and attributes each behavior to the responsible package. It surfaces things like:
 
-BHEESHMA is different. It **monitors runtime behavior** — what your dependencies actually do when they execute. It catches:
+- Postinstall scripts that read credential files and shell out
+- Outbound connections to unexpected hosts (incl. `http.get`/`https.get`, raw TCP, DNS)
+- Obfuscation indicators in package source
+- Behavior deferred across async boundaries (a common evasion)
+- Typosquat-shaped names
 
-- Malicious postinstall scripts stealing CI secrets
-- Packages making outbound connections to exfiltration endpoints
-- Obfuscated code executing at runtime
-- Credential theft, crypto miners, data exfiltration
-- Typosquat packages impersonating popular libraries
-- DNS tunneling that bypasses HTTP-level monitoring
+**Zero dependencies. Zero configuration. Zero telemetry — all analysis is local.**
 
-**Zero dependencies. Zero configuration. Zero telemetry.**
+> **Important — read this first:** BHEESHMA runs *in-process, with the same
+> privileges as the code it watches.* It is **behavioral telemetry and a
+> detection aid, not a sandbox or an enforcement boundary**, and a motivated
+> attacker can evade or disable it. Use it **alongside** static/graph scanners
+> and install hardening, never as your only control. See
+> **[docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)** for exactly what it does and
+> does not catch, and **[benchmark/FINDINGS.md](benchmark/FINDINGS.md)** for
+> measured detection and false-positive rates.
+
+**Evaluating for a team?** See **[docs/ENTERPRISE.md](docs/ENTERPRISE.md)** for
+deployment patterns, gating posture, data-handling, assurance, and an evaluation
+checklist.
 
 ---
 
@@ -447,30 +457,40 @@ npx bheeshma -- node app.js
 ## Testing
 
 ```bash
-npm test        # 41/41 tests, no network required
+npm test            # 44/44 unit/integration tests, no network required
+node benchmark/run.js   # efficacy benchmark: detection & false-positive rates
 ```
 
 All tests run **offline** with **deterministic results**.
 
 ---
 
-## Why Runtime, Not Static?
+## Runtime telemetry as a *complement* to static analysis
 
-Every major npm security tool — Socket.dev, Snyk, Dependabot, npm audit — is **pre-install static analysis**. They scan code *before* it runs. They cannot see what a package *actually does at runtime*.
+Static and registry-graph scanners (Socket.dev, Snyk, Dependabot, npm audit)
+reason about a package before it runs and across the whole registry graph.
+BHEESHMA adds a different, narrower lens — what a package *did* during an
+observed run — and is best used **with** them, not instead of them.
 
-| | Static Analysis (Snyk, Dependabot) | **BHEESHMA (Runtime)** |
+| | Static / graph scanners | **BHEESHMA (runtime telemetry)** |
 |---|---|---|
-| Scans code before execution | ✅ | ❌ (watches what it *actually does*) |
-| Catches obfuscated runtime payloads | ❌ | ✅ |
-| Detects stolen env vars at runtime | ❌ | ✅ |
-| Sees dynamic DNS tunneling | ❌ | ✅ |
-| Catches eval/Function constructor | ❌ | ✅ |
-| Requires internet/database | ✅ | ❌ (100% offline) |
-| Zero dependencies | ❌ | ✅ |
-| SARIF / Code Scanning | ✅ (some) | ✅ |
-| Open source | ❌ (mostly) | ✅ |
+| Reasons about code before execution | ✅ | ❌ (observes what runs) |
+| Sees runtime behavior of executed code paths | ❌ | ✅ |
+| Attributes behavior to a specific package | partial | ✅ |
+| Runs fully offline / no data leaves the machine | varies | ✅ |
+| Zero dependencies / open source | varies | ✅ |
+| SARIF / Code Scanning output | ✅ (some) | ✅ |
+| Catches **dormant** payloads (don't run during the observed run) | ✅ (can) | ❌ |
+| Resists an adversary who disables/evades the monitor | n/a | ❌ (in-process) |
+| Sees native/WASM/`process.binding` paths | varies | ❌ |
 
-**BHEESHMA catches attacks that every static tool misses.** Use them together — static for known CVEs, bheeshma for everything else.
+**Honest framing:** BHEESHMA observes a *slice* of behavior — what executes,
+in your environment, through the JS APIs it hooks. It is strong for behavioral
+visibility and opportunistic malware, and weak against dormant, native, or
+actively evasive code. Run it as a defense-in-depth layer next to static/graph
+tooling. Measured detection and false-positive numbers (and their caveats) live
+in [benchmark/FINDINGS.md](benchmark/FINDINGS.md); the full threat model is in
+[docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 
 ---
 

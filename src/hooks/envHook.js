@@ -13,7 +13,27 @@
 'use strict';
 
 const { createSignal, SignalType } = require('../signals/signalTypes');
-const { resolveCurrentStack } = require('../attribution/resolver');
+const { resolveResponsible } = require('../attribution/resolver');
+
+/**
+ * Detect env reads that are Node's own internal full-environment copy rather
+ * than a deliberate access by the package.
+ *
+ * When a package spawns a subprocess, Node iterates the ENTIRE environment
+ * (copyProcessEnvToEnv / normalizeSpawnArguments in node:child_process) to build
+ * the child's env, firing one proxy `get` per variable. Attributing 60+
+ * ENV_ACCESS signals to the package for a single spawn floods the report and
+ * floors its trust score — making every subprocess-spawning package look
+ * CRITICAL (a false positive) and "detecting" malware for the wrong reason.
+ * A genuine `process.env.X` read by the package has no child_process frame.
+ *
+ * @param {string} stack - Captured stack trace
+ * @returns {boolean} True if this read is Node's internal env enumeration
+ */
+function isInternalEnvEnumeration(stack) {
+    if (!stack) return false;
+    return /node:child_process|internal\/child_process/.test(stack);
+}
 
 let signalCollector = [];
 let isHookInstalled = false;
@@ -151,8 +171,16 @@ function emitEnvAccessSignal(variableName) {
             return;
         }
 
-        // Resolve package from stack trace
-        const attribution = resolveCurrentStack();
+        const stack = new Error().stack;
+
+        // Skip Node's internal full-environment copy during child_process spawn
+        // (one read per env var) — it is not a deliberate access by the package.
+        if (isInternalEnvEnumeration(stack)) {
+            return;
+        }
+
+        // Resolve package (async-aware: stack first, then async context)
+        const attribution = resolveResponsible(stack);
 
         // Only emit signals for third-party packages
         if (!attribution) {
@@ -167,7 +195,7 @@ function emitEnvAccessSignal(variableName) {
             },
             attribution.name,
             attribution.version,
-            new Error().stack
+            stack
         );
 
         signalCollector.push(signal);

@@ -114,6 +114,38 @@ function setupMockPackages() {
         module.exports = { merge: function() {} };
     `, 'utf8');
 
+    // --- test-dns: a third-party package that performs a DNS lookup. Used to
+    //     verify DNS capture works AND keeps working after repeated
+    //     init/teardown cycles (regression guard: dnsHook.uninstall must clear
+    //     its saved originals or re-install silently no-ops).
+    const dnsDir = path.join(nodeModulesDir, 'test-dns');
+    if (!fs.existsSync(dnsDir)) fs.mkdirSync(dnsDir, { recursive: true });
+    fs.writeFileSync(path.join(dnsDir, 'package.json'), JSON.stringify({ name: 'test-dns', version: '1.0.0', main: 'index.js' }), 'utf8');
+    fs.writeFileSync(path.join(dnsDir, 'index.js'), `
+        const dns = require('dns');
+        try { dns.lookup('example.com', () => {}); } catch (e) {}
+        module.exports = {};
+    `, 'utf8');
+
+    // --- test-deferred-net: defers http.get + net.createConnection across an
+    //     async boundary (setImmediate). Regression guard for two classes of bug:
+    //       1. http.get / net.createConnection bypassing the hooks entirely
+    //       2. async-deferred behavior losing package attribution (stack unwound)
+    const deferredDir = path.join(nodeModulesDir, 'test-deferred-net');
+    if (!fs.existsSync(deferredDir)) fs.mkdirSync(deferredDir, { recursive: true });
+    fs.writeFileSync(path.join(deferredDir, 'package.json'), JSON.stringify({ name: 'test-deferred-net', version: '1.0.0', main: 'index.js' }), 'utf8');
+    fs.writeFileSync(path.join(deferredDir, 'index.js'), `
+        const http = require('http');
+        const net = require('net');
+        // Defer so the synchronous stack no longer contains this package's
+        // frames when the calls actually fire (the classic evasion path).
+        setImmediate(() => {
+            try { const r = http.get({ host: '127.0.0.1', port: 9, path: '/beacon' }); r.on('error', () => {}); } catch (e) {}
+            try { const s = net.createConnection({ host: '127.0.0.1', port: 4444 }); s.on('error', () => {}); } catch (e) {}
+        });
+        module.exports = {};
+    `, 'utf8');
+
     // --- test-miner-mock: simulates cryptominer behavior ---
     const minerDir = path.join(nodeModulesDir, 'test-miner-mock');
     if (!fs.existsSync(minerDir)) fs.mkdirSync(minerDir, { recursive: true });
@@ -342,15 +374,17 @@ async function runTests() {
     console.log('-'.repeat(70));
     bheeshma.init();
     try {
-        const dns = require('dns');
-        dns.lookup('localhost', () => {});
-        await sleep(100);
+        // DNS call comes from a THIRD-PARTY package (first-party calls have no
+        // package attribution and would never record a signal). This also runs
+        // after several init/teardown cycles, so it guards the reinstall bug.
+        require('./node_modules/test-dns/index.js');
+        await sleep(150);
 
-        const dnsSignals = bheeshma.getSignals().filter(s => s.type === 'DNS_QUERY');
-        console.log(`  DNS signals captured: ${dnsSignals.length}`);
-        assert(dnsSignals.length >= 0, 'DNS hook should not crash');
+        const dnsSignals = bheeshma.getSignals().filter(s => s.type === 'DNS_QUERY' && s.package === 'test-dns');
+        console.log(`  DNS signals captured from third-party package: ${dnsSignals.length}`);
+        assert(dnsSignals.length > 0, 'DNS hook should capture third-party DNS lookups (incl. after re-init)');
     } catch (err) {
-        assert(true, 'DNS hook test skipped (dns module unavailable)');
+        assert(false, 'DNS hook test failed: ' + err.message);
     }
     resetBetweenTests();
     console.log('');
@@ -578,7 +612,46 @@ async function runTests() {
     console.log('');
 
     // ===================================================================
-    // Test 18: Teardown
+    // Test 18: Async-deferred capture & attribution (http.get + createConnection)
+    // ===================================================================
+    console.log('Test Group: Async-Deferred Capture & Attribution');
+    console.log('-'.repeat(70));
+    bheeshma.init();
+    require('./node_modules/test-deferred-net/index.js');
+    await sleep(300); // allow the setImmediate-deferred calls to fire
+
+    const deferredSignals = bheeshma.getSignals().filter(s => s.package === 'test-deferred-net');
+    const deferredTypes = deferredSignals.map(s => s.type);
+    console.log(`  Signal types attributed to test-deferred-net: ${JSON.stringify(deferredTypes)}`);
+    assert(deferredTypes.includes('HTTP_REQUEST'),
+        'http.get from an async-deferred context should be captured and attributed');
+    assert(deferredTypes.includes('NET_CONNECT'),
+        'net.createConnection from an async-deferred context should be captured and attributed');
+    resetBetweenTests();
+    console.log('');
+
+    // ===================================================================
+    // Test 19: Fail-level enforcement selects packages at/above the level
+    // (regression guard: --fail-level high/medium/low were no-ops because
+    //  enforcement only ever collected CRITICAL packages)
+    // ===================================================================
+    console.log('Test Group: Fail-Level Enforcement');
+    console.log('-'.repeat(70));
+    const { findViolatingPackages } = require('../src/scoring/trustScore');
+    const synthScores = new Map([
+        ['a@1', { name: 'a', version: '1', score: 10, riskLevel: 'CRITICAL' }],
+        ['b@1', { name: 'b', version: '1', score: 50, riskLevel: 'HIGH' }],
+        ['c@1', { name: 'c', version: '1', score: 70, riskLevel: 'MEDIUM' }],
+        ['d@1', { name: 'd', version: '1', score: 95, riskLevel: 'LOW' }]
+    ]);
+    assert(findViolatingPackages(synthScores, 'critical').length === 1, 'fail-level critical flags only CRITICAL');
+    assert(findViolatingPackages(synthScores, 'high').length === 2, 'fail-level high flags CRITICAL + HIGH');
+    assert(findViolatingPackages(synthScores, 'medium').length === 3, 'fail-level medium flags CRITICAL + HIGH + MEDIUM');
+    assert(findViolatingPackages(synthScores, 'low').length === 4, 'fail-level low flags all packages');
+    console.log('');
+
+    // ===================================================================
+    // Test 20: Teardown
     // ===================================================================
     console.log('Test Group: Teardown');
     console.log('-'.repeat(70));

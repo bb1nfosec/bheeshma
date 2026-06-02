@@ -191,6 +191,31 @@ function detectDataExfiltration(signals) {
                 }
             }
         }
+
+        // Detect DNS-based exfiltration / tunneling. The dnsHook already computes
+        // these indicators per query; surface them as exfiltration so they
+        // influence scoring (DNS tunneling otherwise scores LOW — just a few
+        // DNS_QUERY signals — despite being a primary covert-channel technique).
+        if (signal.type === SignalType.DNS_QUERY) {
+            const m = signal.metadata || {};
+            if (m.knownExfilService) {
+                indicators.push({
+                    type: 'DNS_EXFIL_SERVICE',
+                    severity: 'CRITICAL',
+                    package: signal.package,
+                    indicator: m.hostname,
+                    signal
+                });
+            } else if (m.highEntropySubdomain || m.suspiciousSubdomainLength || m.base64InSubdomain || m.hexInSubdomain) {
+                indicators.push({
+                    type: 'DNS_TUNNELING',
+                    severity: 'HIGH',
+                    package: signal.package,
+                    indicator: m.hostname,
+                    signal
+                });
+            }
+        }
     }
 
     // If a package read sensitive files AND made HTTP requests, that's highly suspicious
@@ -207,6 +232,34 @@ function detectDataExfiltration(signals) {
                 package: packageName,
                 indicator: `Read ${fileReads.length} sensitive file(s) and made HTTP request`,
                 details: fileReads.map(fr => fr.file)
+            });
+        }
+    }
+
+    // Obfuscated code that ALSO performs outbound network activity is a strong
+    // hidden-payload indicator. Obfuscation alone is suspicious but additive
+    // scoring leaves it at MEDIUM; pairing it with an exfil channel (HTTP(S),
+    // raw TCP, or DNS) elevates it to HIGH so the gate reacts.
+    const obfuscatedPackages = new Set(
+        signals
+            .filter(s => s.type === SignalType.OBFUSCATION_DETECTED && s.package)
+            .map(s => s.package)
+    );
+    for (const pkg of obfuscatedPackages) {
+        const hasNetwork = signals.some(s =>
+            s.package === pkg && (
+                s.type === SignalType.HTTP_REQUEST ||
+                s.type === SignalType.HTTPS_REQUEST ||
+                s.type === SignalType.NET_CONNECT ||
+                s.type === SignalType.DNS_QUERY
+            )
+        );
+        if (hasNetwork) {
+            indicators.push({
+                type: 'OBFUSCATED_NETWORK_ACTIVITY',
+                severity: 'HIGH',
+                package: pkg,
+                indicator: 'Obfuscated code performing outbound network activity'
             });
         }
     }

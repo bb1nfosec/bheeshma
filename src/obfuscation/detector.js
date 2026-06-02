@@ -17,6 +17,12 @@ const path = require('path');
 const { createSignal, SignalType } = require('../signals/signalTypes');
 const { isWhitelisted } = require('../attribution/resolver');
 
+// Pristine readFileSync captured at module load — BEFORE any hook installs.
+// The detector reads package files to inspect them; using the hooked fs would
+// record a spurious FS_READ attributed to the package (bheeshma reporting its
+// own introspection as the package's behavior). This reference bypasses the hook.
+const pristineReadFileSync = fs.readFileSync;
+
 /**
  * Cache of packages already scanned (avoid repeated file I/O)
  */
@@ -60,7 +66,7 @@ function scanPackage(packageName, packageDir, signalCollector, config) {
             }
         }
 
-        const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+        const pkgJson = JSON.parse(pristineReadFileSync(pkgJsonPath, "utf8"));
         const entryPoint = pkgJson.main || 'index.js';
         const entryPath = path.join(packageDir, entryPoint);
 
@@ -69,7 +75,7 @@ function scanPackage(packageName, packageDir, signalCollector, config) {
             return null;
         }
 
-        const source = fs.readFileSync(entryPath, 'utf8');
+        const source = pristineReadFileSync(entryPath, "utf8");
         const indicators = detectObfuscationPatterns(source);
 
         const result = indicators.length > 0 ? { indicators, packageName } : null;
