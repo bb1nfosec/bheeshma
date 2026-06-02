@@ -54,6 +54,10 @@ Static and registry-graph scanners (Socket.dev, Snyk, Dependabot, npm audit) rea
 > does not catch, and **[benchmark/FINDINGS.md](benchmark/FINDINGS.md)** for
 > measured detection and false-positive rates.
 
+**Evaluating for a team?** See **[docs/ENTERPRISE.md](docs/ENTERPRISE.md)** for
+deployment patterns, gating posture, data-handling, assurance, and an evaluation
+checklist.
+
 ---
 
 ## 30-Second Quick Start
