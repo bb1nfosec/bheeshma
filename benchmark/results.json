@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-02T04:49:22.111Z",
+  "generatedAt": "2026-06-02T04:51:59.841Z",
   "corpus": {
     "malicious": 7,
     "benign": 7
@@ -39,13 +39,13 @@
       "name": "pkg-dns-tunnel-sim",
       "label": "malicious",
       "attack": "DNS tunneling exfiltration (flatmap-stream class)",
-      "score": 89,
-      "riskLevel": "LOW",
+      "score": 59,
+      "riskLevel": "HIGH",
       "signalTypes": [
         "FS_READ",
         "DNS_QUERY"
       ],
-      "patternFlagged": false
+      "patternFlagged": true
     },
     {
       "name": "pkg-reverse-shell-sim",
@@ -201,36 +201,36 @@
     },
     "highPlus": {
       "label": "high+ (<60)",
-      "tp": 5,
+      "tp": 6,
       "fp": 0,
       "tn": 7,
-      "fn": 2,
-      "recall": 0.7142857142857143,
+      "fn": 1,
+      "recall": 0.8571428571428571,
       "precision": 1,
       "fpRate": 0,
-      "f1": 0.8333333333333333
+      "f1": 0.923076923076923
     },
     "mediumPlus": {
       "label": "medium+ (<80)",
-      "tp": 5,
+      "tp": 6,
       "fp": 2,
       "tn": 5,
-      "fn": 2,
-      "recall": 0.7142857142857143,
-      "precision": 0.7142857142857143,
+      "fn": 1,
+      "recall": 0.8571428571428571,
+      "precision": 0.75,
       "fpRate": 0.2857142857142857,
-      "f1": 0.7142857142857143
+      "f1": 0.7999999999999999
     },
     "scoreOrPattern": {
       "label": "medium+ OR pattern hit (best available today)",
-      "tp": 5,
+      "tp": 6,
       "fp": 3,
       "tn": 4,
-      "fn": 2,
-      "recall": 0.7142857142857143,
-      "precision": 0.625,
+      "fn": 1,
+      "recall": 0.8571428571428571,
+      "precision": 0.6666666666666666,
       "fpRate": 0.42857142857142855,
-      "f1": 0.6666666666666666
+      "f1": 0.75
     }
   }
 }

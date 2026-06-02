@@ -17,8 +17,8 @@ Replacing it with real malicious packages (in a sandbox) is the Stage-2 follow-u
 | Threshold | Recall (catch rate) | Precision | FP rate | F1 |
 |---|---|---|---|---|
 | critical-only (<30) -- current default | 29% (2/7) | 100% | 0% | 0.44 |
-| **high+ (<60) -- recommended** | **71%** (5/7) | **100%** | **0%** | **0.83** |
-| medium+ (<80) | 71% (5/7) | 71% | 29% | 0.71 |
+| **high+ (<60) -- recommended** | **86%** (6/7) | **100%** | **0%** | **0.92** |
+| medium+ (<80) | 86% (6/7) | 75% | 29% | 0.80 |
 
 ### How the engine got here (each step measured, not assumed)
 
@@ -26,7 +26,8 @@ Replacing it with real malicious packages (in a sandbox) is the Stage-2 follow-u
 |---|---|---|---|
 | As shipped (with the env-flood bug) | 43%* | 43%* | 14%* |
 | After env-flood fix (artifact removed) | 0% | 29% | 0% |
-| **After correlation-aware scoring** | **29%** | **71%** | **0%** |
+| After correlation-aware scoring | 29% | 71% | 0% |
+| **After DNS-tunneling detection** | **29%** | **86%** | **0%** |
 
 \* The "as shipped" numbers were fake: the `ENV_ACCESS`-flood-on-spawn bug
 floored every subprocess-spawning package (malicious **and** benign) to score 0,
@@ -46,14 +47,12 @@ inflating apparent detection and producing a benign-build-tool false positive.
    lifted high+ recall from 29% to 71% with no new false positives, and
    correctly left the context-aware `dotenv` exemption alone (stays LOW).
 
-3. **Two attack classes still score LOW and are missed even at medium+:**
-   - **DNS tunneling (89).** The `dnsHook` computes high-entropy / known-exfil
-     indicators in signal metadata, but there is **no DNS pattern detector** to
-     elevate them. Adding one is the next clear win.
+3. **One attack class still scores LOW and is missed even at medium+:**
    - **Obfuscated loader (87).** The `OBFUSCATION_DETECTED` signal did not fire
      in the run — the scan is scheduled via `setImmediate` and can lose the race
      with report generation (a known P1 bug), and there is no obfuscation-based
-     correlation pattern.
+     correlation pattern. (DNS tunneling, previously also missed, is now caught
+     at HIGH — see the progression table above.)
 
 4. **Residual medium+ false positives** are a benign build tool (spawns a
    subprocess) and an analytics SDK (env + file + one HTTPS call), both at 72-77.
@@ -62,10 +61,11 @@ inflating apparent detection and producing a benign-build-tool false positive.
 ## Prioritized next steps this evidence justifies
 
 - **[done] Correlation-aware scoring** — pattern severity caps the trust score.
-- **[next] Add a DNS-tunneling pattern detector** — reuse the indicators the
-  `dnsHook` already produces; would catch the DNS-exfil class.
+- **[done] DNS-tunneling detection** — surfaced via the existing `dnsHook`
+  indicators; DNS-exfil class now flags HIGH.
 - **[next] Fix the obfuscation-scan race** — run/await the scan before report so
-  `OBFUSCATION_DETECTED` reliably lands; consider an obfuscation+network pattern.
+  `OBFUSCATION_DETECTED` reliably lands; add an obfuscation+network pattern so it
+  reaches HIGH (additive alone leaves it at ~62/MEDIUM).
 - **[config] Change the recommended/default gate to `high+`** and document the
   recall/FP tradeoff honestly.
 
