@@ -157,6 +157,16 @@ function run() {
         const out = (rs.stdout || '') + (rs.stderr || '');
         check(/nativeexfil/.test(out), 'attributes native-subprocess behavior to the package (process lineage)');
         check(/NET.?CONNECT|NETWORK/i.test(out), 'captures native subprocess egress (curl) that the in-process engine misses');
+
+        // SARIF output makes the out-of-process engine Code Scanning-pluggable.
+        const sarifPath = path.join(work, 'sandbox.sarif');
+        spawnSync(process.execPath,
+            [SANDBOX_BIN, '--format', 'sarif', '--output', sarifPath, '--', 'node', path.join(sbxPkg, 'payload.js')],
+            { cwd: work, encoding: 'utf8' });
+        let sarif = null;
+        try { sarif = JSON.parse(fs.readFileSync(sarifPath, 'utf8')); } catch (e) { /* */ }
+        check(sarif && sarif.version === '2.1.0' && Array.isArray(sarif.runs),
+            'out-of-process engine emits valid SARIF v2.1.0');
     }
 
     // --- types drift guard: index.d.ts must declare exactly the runtime API ---
