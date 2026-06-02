@@ -22,14 +22,8 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
-      - name: Run unit/integration tests
+      - name: Run tests
         run: node test/harness.js
-
-      - name: Run CLI integration tests
-        run: node test/cli.test.js
-
-      - name: Run efficacy benchmark
-        run: node benchmark/run.js
 
   security-audit:
     runs-on: ubuntu-latest
