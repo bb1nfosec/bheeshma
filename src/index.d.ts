@@ -116,18 +116,24 @@ export interface PatternFinding {
 /**
  * Policy enforcement result
  */
+export interface ViolatingPackage {
+  name: string;
+  version: string;
+  score: number;
+  riskLevel: RiskLevel;
+}
+
 export interface EnforcementResult {
   /** Whether the policy passed */
   passed: boolean;
-  /** Failure message if policy failed */
-  message?: string;
-  /** Packages that violated the policy */
-  criticalPackages?: Array<{
-    package: string;
-    version: string;
-    trustScore: number;
-    riskLevel: RiskLevel;
-  }>;
+  /** The fail level the check was run at */
+  failLevel: FailLevel;
+  /** Packages at or above the fail level */
+  violatingPackages: ViolatingPackage[];
+  /** Alias of violatingPackages, kept for backward compatibility */
+  criticalPackages: ViolatingPackage[];
+  /** Human-readable result message */
+  message: string;
 }
 
 /**
@@ -159,32 +165,89 @@ export interface BheeshmaConfig {
  */
 export type OutputFormat = 'cli' | 'json' | 'html' | 'sarif';
 
-/**
- * Initialize bheeshma monitoring hooks.
- * Call this before requiring any third-party packages.
- */
-export function init(): void;
+/** Enforcement fail levels, lowest to highest strictness. */
+export type FailLevel = 'low' | 'medium' | 'high' | 'critical';
+
+/** Options accepted by init(). */
+export interface InitOptions {
+  /** An inline config object (merged over defaults). */
+  config?: BheeshmaConfig;
+  /** Path to a .bheeshmarc.json file to load. */
+  configPath?: string;
+}
+
+/** Result returned by init(). */
+export interface InitResult {
+  success: boolean;
+  installed: string[];
+  failed?: string[];
+  config?: BheeshmaConfig;
+  message?: string;
+}
+
+/** Result returned by teardown(). */
+export interface TeardownResult {
+  success: boolean;
+  uninstalled: string[];
+  failed?: string[];
+}
+
+/** Per-package score entry returned by getTrustScores(). */
+export interface PackageScore {
+  name: string;
+  version: string;
+  score: number;
+  riskLevel: RiskLevel;
+  signalCount: number;
+  uniqueSignalCount: number;
+  stats: Partial<Record<SignalType, number>>;
+  effectiveSignals: Signal[];
+}
 
 /**
- * Generate a report in the specified format.
- * @param format - Output format: 'cli', 'json', 'html', or 'sarif'
- * @returns Formatted report string
+ * Initialize bheeshma monitoring hooks. Call as early as possible, before
+ * requiring third-party packages.
  */
-export function generateReport(format: OutputFormat): string;
+export function init(options?: InitOptions): InitResult;
+
+/** Get a copy of all collected signals. */
+export function getSignals(): Signal[];
+
+/** Get calculated, pattern-aware trust scores keyed by `name@version`. */
+export function getTrustScores(): Map<string, PackageScore>;
+
+/** Get the active configuration (or null if not initialized). */
+export function getConfig(): BheeshmaConfig | null;
 
 /**
- * Generate a structured JSON report object.
- * @returns Parsed report with summary, packages, and patterns
+ * Generate a report. 'json'/'sarif' return serialized strings; 'cli'/'html'
+ * return formatted text. Defaults to 'cli'.
  */
-export function generateReport(format: 'json'): string;
+export function generateReport(format?: OutputFormat): string;
 
 /**
  * Check enforcement policy against current signals.
- * @returns Enforcement result with pass/fail and critical packages
+ * @param options - Optional fail level (defaults to 'critical').
  */
-export function enforcePolicy(): EnforcementResult;
+export function enforcePolicy(options?: { failLevel?: FailLevel }): EnforcementResult;
+
+/** Best-effort POST of a critical-findings alert to a webhook URL. */
+export function sendAlertWebhook(url: string, criticalPackages: ViolatingPackage[]): void;
+
+/** Remove all hooks, restore originals, and clear collected state. */
+export function teardown(): TeardownResult;
+
+/** Run `fn` under monitoring and return its result plus a report. */
+export function monitor(
+  fn: () => any,
+  options?: { format?: OutputFormat }
+): Promise<{ result: any; report: string }>;
+
+/** Record a single signal (respects whitelist/blacklist/maxSignals). */
+export function recordSignal(signal: Signal): boolean;
 
 /**
- * Clean up all monitoring hooks and restore original functions.
+ * Ingest signals collected by another process (used by the CI child preload).
+ * @returns the number of signals ingested.
  */
-export function teardown(): void;
+export function ingestSignals(signals: Signal[]): number;

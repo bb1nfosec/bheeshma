@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-02T08:35:04.303Z",
+  "generatedAt": "2026-06-02T08:52:37.294Z",
   "corpus": {
     "malicious": 7,
     "benign": 7
@@ -24,11 +24,10 @@
       "name": "pkg-crypto-miner-sim",
       "label": "malicious",
       "attack": "Cryptojacking (ua-parser-js class)",
-      "score": 55,
+      "score": 58,
       "riskLevel": "HIGH",
       "signalTypes": [
         "ENV_ACCESS",
-        "FS_READ",
         "SHELL_EXEC",
         "NET_CONNECT",
         "DNS_QUERY"
@@ -42,7 +41,6 @@
       "score": 59,
       "riskLevel": "HIGH",
       "signalTypes": [
-        "FS_READ",
         "DNS_QUERY"
       ],
       "patternFlagged": true
@@ -54,7 +52,6 @@
       "score": 59,
       "riskLevel": "HIGH",
       "signalTypes": [
-        "FS_READ",
         "SHELL_EXEC",
         "NET_CONNECT"
       ],
@@ -67,7 +64,6 @@
       "score": 59,
       "riskLevel": "HIGH",
       "signalTypes": [
-        "FS_READ",
         "HTTP_REQUEST",
         "OBFUSCATION_DETECTED"
       ],
@@ -81,7 +77,6 @@
       "riskLevel": "CRITICAL",
       "signalTypes": [
         "ENV_ACCESS",
-        "FS_READ",
         "HTTPS_REQUEST",
         "DNS_QUERY"
       ],
@@ -95,7 +90,6 @@
       "riskLevel": "HIGH",
       "signalTypes": [
         "ENV_ACCESS",
-        "FS_READ",
         "HTTPS_REQUEST",
         "DNS_QUERY"
       ],
@@ -105,7 +99,7 @@
       "name": "dotenv",
       "label": "benign",
       "attack": "Known config loader (dotenv) legitimately reading .env — context-aware exemption must NOT flag it",
-      "score": 94,
+      "score": 97,
       "riskLevel": "LOW",
       "signalTypes": [
         "FS_READ"
@@ -116,11 +110,10 @@
       "name": "pkg-http-api-client",
       "label": "benign",
       "attack": "Legit HTTPS API client (axios-like) calling a normal API host",
-      "score": 80,
+      "score": 83,
       "riskLevel": "LOW",
       "signalTypes": [
         "ENV_ACCESS",
-        "FS_READ",
         "HTTPS_REQUEST",
         "DNS_QUERY"
       ],
@@ -130,10 +123,9 @@
       "name": "pkg-file-logger",
       "label": "benign",
       "attack": "Logging library writing to a log file",
-      "score": 87,
+      "score": 90,
       "riskLevel": "LOW",
       "signalTypes": [
-        "FS_READ",
         "FS_WRITE"
       ],
       "patternFlagged": false
@@ -142,7 +134,7 @@
       "name": "pkg-config-reader",
       "label": "benign",
       "attack": "Reads config files + a couple env vars (normal app config)",
-      "score": 84,
+      "score": 87,
       "riskLevel": "LOW",
       "signalTypes": [
         "ENV_ACCESS",
@@ -154,10 +146,9 @@
       "name": "pkg-build-tool",
       "label": "benign",
       "attack": "Build tool that legitimately spawns a child process (tsc-like)",
-      "score": 77,
-      "riskLevel": "MEDIUM",
+      "score": 80,
+      "riskLevel": "LOW",
       "signalTypes": [
-        "FS_READ",
         "SHELL_EXEC"
       ],
       "patternFlagged": false
@@ -166,7 +157,7 @@
       "name": "pkg-telemetry-sdk",
       "label": "benign",
       "attack": "Analytics SDK: env + file read + one HTTPS call (mixed but innocent)",
-      "score": 72,
+      "score": 75,
       "riskLevel": "MEDIUM",
       "signalTypes": [
         "ENV_ACCESS",
@@ -180,11 +171,9 @@
       "name": "pkg-pure-util",
       "label": "benign",
       "attack": "Pure computation, no side effects (lodash-like)",
-      "score": 97,
+      "score": 100,
       "riskLevel": "LOW",
-      "signalTypes": [
-        "FS_READ"
-      ],
+      "signalTypes": [],
       "patternFlagged": false
     }
   ],
@@ -214,6 +203,17 @@
     "mediumPlus": {
       "label": "medium+ (<80)",
       "tp": 7,
+      "fp": 1,
+      "tn": 6,
+      "fn": 0,
+      "recall": 1,
+      "precision": 0.875,
+      "fpRate": 0.14285714285714285,
+      "f1": 0.9333333333333333
+    },
+    "scoreOrPattern": {
+      "label": "medium+ OR pattern hit (best available today)",
+      "tp": 7,
       "fp": 2,
       "tn": 5,
       "fn": 0,
@@ -221,17 +221,6 @@
       "precision": 0.7777777777777778,
       "fpRate": 0.2857142857142857,
       "f1": 0.8750000000000001
-    },
-    "scoreOrPattern": {
-      "label": "medium+ OR pattern hit (best available today)",
-      "tp": 7,
-      "fp": 3,
-      "tn": 4,
-      "fn": 0,
-      "recall": 1,
-      "precision": 0.7,
-      "fpRate": 0.42857142857142855,
-      "f1": 0.8235294117647058
     }
   }
 }

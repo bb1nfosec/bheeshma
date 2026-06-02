@@ -2,6 +2,66 @@
 
 All notable changes to BHEESHMA will be documented in this file.
 
+## [Unreleased] — hardening toward a production/enterprise tool
+
+Evidence-driven hardening: an efficacy benchmark, a real-package false-positive
+sweep, and CLI integration tests repeatedly exposed real bugs, each fixed here.
+See `benchmark/FINDINGS.md`, `docs/THREAT_MODEL.md`, `docs/ENTERPRISE.md`, and
+`docs/ARCHITECTURE.md`.
+
+### Added
+
+- **Out-of-process engine (`bheeshma-sandbox`, experimental, Linux + strace):** a
+  second engine that observes syscalls from *outside* the process via the kernel
+  (ptrace). It cannot be evaded/disabled by the monitored code and sees native
+  subprocess egress (e.g. `curl` to a cloud-metadata endpoint) that the
+  in-process engine is structurally blind to. Attributes by process lineage
+  (incl. real `npm install` via `npm_package_name`), and can **prevent** egress
+  with `--block-network` (bwrap), not just detect. See `docs/ARCHITECTURE.md`.
+- **Efficacy benchmark** (`npm run benchmark`), **real-package FP sweep**
+  (`benchmark/fp-real.js`), **overhead microbenchmark** (`npm run perf`), and a
+  **real-malware detonation suite + isolated sandbox** (`benchmark/malware-suite.js`,
+  `benchmark/sandbox/`; honest scope: commodity npm malware, not APT evasion).
+- **CLI integration tests** that drive the actual binaries (`npm run test:cli`),
+  plus a `.d.ts`↔runtime drift guard. Test count: ~41 → 68.
+- `ingestSignals`, `findViolatingPackages` added to the public API.
+
+### Fixed
+
+- **CI/CLI collected nothing from spawned commands**: `bheeshma-ci` / `bheeshma`
+  / `bheeshma install` preloaded `worker-bootstrap.js`, a no-op in a normal child
+  process, so the gate and the install monitor always passed. Now monitor the
+  child process tree via `ci-preload.js` and ingest the signals.
+- **`--fail-level high/medium/low` were no-ops** (enforcement only ever collected
+  CRITICAL packages). Now level-aware (`findViolatingPackages`).
+- **Catastrophic false positive**: Node's module loader reads every package file
+  via the hooked `fs`, so `require()`-ing a multi-file package (e.g. express)
+  scored it 0/CRITICAL. Loader-issued reads are now ignored. Measured result:
+  **0% false positives at high+ across 71 real packages**.
+- **`http.get`/`https.get` and `net.createConnection` were unmonitored**;
+  **async-deferred behavior lost attribution** (added `AsyncLocalStorage`);
+  **`ENV_ACCESS` flood on `spawn`**; **DNS hook died after the first
+  init/teardown**; **obfuscation scan raced the report**.
+- **Drifted TypeScript types**: `index.d.ts` declared 5 of 11 exports with wrong
+  signatures — rewritten to match, guarded by a test.
+- Removed the promotional `postinstall` script; fixed the broken Marketplace
+  `action.yml`.
+
+### Changed
+
+- **Correlation-aware scoring**: recognized exfil/backdoor/crypto/credential-theft/
+  typosquat/DNS-tunneling/obfuscation+network patterns now cap the trust score.
+- **Honest positioning**: README/docs reframe BHEESHMA as defense-in-depth
+  runtime telemetry (the in-process engine is not a containment boundary), with
+  an explicit threat model and limitations.
+- **~2.2× lower monitoring overhead** (structured-stack attribution + fast-path
+  skip): worst-case microbenchmark 14.7× → 6.7×.
+
+### Note
+
+- Enabling CI to run the new test suites requires a 2-line `.github/workflows/ci.yml`
+  change not included here (the push token lacked `workflow` scope).
+
 ## [2.1.0] - 2026-05-16
 
 ### Fixed

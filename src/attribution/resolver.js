@@ -332,6 +332,86 @@ function resolveCurrentStackFast() {
 }
 
 /**
+ * BHEESHMA's own source root, used to skip its own frames when classifying a
+ * call's immediate caller. Works both in development (… /src) and when
+ * installed as a dependency (… /node_modules/bheeshma/src).
+ */
+const SELF_DIR = path.resolve(__dirname, '..');
+
+function isLoaderFrame(fileName) {
+    // Node's CJS/ESM module loaders that read module source during require/import.
+    return fileName.indexOf('internal/modules') !== -1 ||
+        fileName.indexOf('internal\\modules') !== -1;
+}
+
+function isSelfFrame(fileName) {
+    return fileName.indexOf(SELF_DIR) === 0;
+}
+
+/**
+ * Resolve attribution for a filesystem read AND classify whether the read was
+ * issued by Node's module loader (i.e. loading a module's source during
+ * require/import) rather than by the package performing deliberate file I/O.
+ *
+ * Why: Node's loader reads every `.js` file of a package through the hooked
+ * `fs.readFileSync`. Counting those as the package's own behavior floods the
+ * report — a multi-file package like express produces 100+ FS_READ signals just
+ * by being required, flooring its score to CRITICAL (a severe false positive).
+ * Those reads are Node loading code, not the dependency touching the disk.
+ *
+ * A single structured-stack capture yields both the attributed package
+ * (outermost node_modules frame) and whether the *immediate* caller of the fs
+ * function — skipping BHEESHMA's own frames — is the module loader.
+ *
+ * @returns {{ pkg: object|null, viaModuleLoader: boolean }}
+ */
+function resolveFsRead() {
+    const originalPrepare = Error.prepareStackTrace;
+    const originalLimit = Error.stackTraceLimit;
+    let frames = null;
+    try {
+        Error.prepareStackTrace = (_err, callSites) => callSites;
+        Error.stackTraceLimit = 50;
+        const holder = {};
+        Error.captureStackTrace(holder, resolveFsRead);
+        frames = holder.stack;
+    } catch (err) {
+        frames = null;
+    } finally {
+        Error.prepareStackTrace = originalPrepare;
+        Error.stackTraceLimit = originalLimit;
+    }
+
+    let pkg = null;
+    let viaModuleLoader = false;
+    let sawFirstCaller = false;
+
+    if (Array.isArray(frames)) {
+        for (let i = 0; i < frames.length; i++) {
+            let fileName;
+            try { fileName = frames[i].getFileName(); } catch (e) { continue; }
+            if (!fileName) continue;
+            if (isSelfFrame(fileName)) continue; // ignore BHEESHMA's own frames
+
+            // The first non-BHEESHMA frame is the actual caller of the fs op.
+            if (!sawFirstCaller) {
+                sawFirstCaller = true;
+                if (isLoaderFrame(fileName)) viaModuleLoader = true;
+            }
+
+            const idx = fileName.indexOf('node_modules');
+            if (idx !== -1) {
+                const info = extractPackageInfo(fileName, idx);
+                if (info) pkg = info; // keep outermost (closest to user code)
+            }
+        }
+    }
+
+    if (!pkg) pkg = getCurrentPackage();
+    return { pkg, viaModuleLoader };
+}
+
+/**
  * Check if a package name matches a whitelist pattern.
  * Supports: exact match ("express"), wildcard ("express@*"), scoped ("@types/*")
  * 
@@ -394,6 +474,7 @@ module.exports = {
     resolvePackageFromStack,
     resolveCurrentStack,
     resolveCurrentStackFast,
+    resolveFsRead,
     getPackageFromStack,
     getPackageFromPath,
     resolveResponsible,

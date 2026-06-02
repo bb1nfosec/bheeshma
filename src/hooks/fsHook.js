@@ -15,7 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 const { createSignal, SignalType } = require('../signals/signalTypes');
-const { resolveCurrentStackFast } = require('../attribution/resolver');
+const { resolveFsRead } = require('../attribution/resolver');
 
 let signalCollector = [];
 const originalFunctions = {};
@@ -158,11 +158,18 @@ function hookFunction(fnName, signalType) {
  */
 function emitFsSignal(signalType, filePath, operation) {
     try {
-        // Resolve attribution (fast: structured stack, no string formatting)
-        const attribution = resolveCurrentStackFast();
+        // Resolve attribution + classify the read in one structured-stack pass.
+        const { pkg: attribution, viaModuleLoader } = resolveFsRead();
 
         // Only emit for third-party packages
         if (!attribution) {
+            return;
+        }
+
+        // Skip reads issued by Node's module loader (loading a package's source
+        // during require/import). Those are not the package touching the disk;
+        // counting them floods multi-file packages into false CRITICALs.
+        if (viaModuleLoader) {
             return;
         }
 
