@@ -44,12 +44,20 @@ Built the efficacy benchmark + fixed two more bugs it exposed:
 - Correlation-aware scoring (pattern severity → score cap; dotenv LOW exemption preserved)
 - DNS tunneling/exfil detection (via existing dnsHook indicators → dataExfiltration pattern)
 
+## Session 3 (commits c488d6a, 702ddb2) — DONE
+- **Obfuscation now reliably detected:** scan runs synchronously (was setImmediate race) with ALS-context path fallback; added obfuscation+network HIGH pattern; introspection reads use pristine readFileSync (no self-attributed FS_READ). → benchmark high+ 86%→**100% recall / 100% precision / 0% FP**.
+- **TWO CRITICAL real-world bugs fixed (were blockers for actual use):**
+  1. **CI/CLI collected NOTHING from spawned commands.** `bheeshma-ci`/`bheeshma` spawned the target + preloaded worker-bootstrap.js, which is a no-op in a normal child process → "0 packages, 0 signals", gate always passed. Fixed: new `src/ci-preload.js` monitors IN the child (NODE_OPTIONS inherited), writes per-PID signal files to BHEESHMA_SIGNAL_DIR, parent ingests via new `bheeshma.ingestSignals`. E2E verified.
+  2. **`--fail-level high/medium/low` were no-ops** (enforcePolicy returned only CRITICAL, then CI filtered that CRITICAL-only list). Fixed: `findViolatingPackages(scores, level)` + `enforcePolicy({failLevel})`. E2E verified (high→exit1 on HIGH pkg).
+- Tests 44→48.
+
 ## Immediate next steps (when resuming)
-1. **Fix obfuscation-scan race** — OBFUSCATION_DETECTED scheduled via setImmediate (index.js recordSignal) can lose the race with report gen; run/await before report (WATCH fsHook reentrancy — scan reads files via hooked fs). Add an obfuscation+network correlation pattern so it reaches HIGH (additive alone ≈62/MEDIUM). Target: high+ recall 86%→100%.
-2. **Change recommended/default gate to `high+`** (critical-only catches only 29%); document recall/FP tradeoff. Touches bin/bheeshma-ci.js default failLevel + action.yml + README.
-3. P1 reliability: node:test runner replacing sleep()-based harness + coverage; TypeScript migration (index.d.ts can drift).
-4. P2 cont'd: scan all package files not just entry point.
-5. Decide push/PR of branch harden/p0-correctness (still held).
+1. **Default-gate decision:** wiring now works; default still 'critical' (conservative, high precision). Consider recommending 'high' in README/action (corpus: critical=29%, high=100%/0%FP) — but synthetic corpus; weigh real-world FP. Non-urgent.
+2. P1 reliability: node:test runner replacing sleep()-based harness + coverage; TypeScript migration (index.d.ts can drift).
+3. P2: scan all package files not just entry point.
+4. [minor] suppress module-loader FS_READ (Node's require reading a package's own index.js → 1 cosmetic FS_READ/pkg).
+5. **Real-malware benchmark in a sandbox** (Stage-2→3 gate) — replace synthetic corpus.
+6. Decide push/PR of branch harden/p0-correctness (still held).
 
 ## Open decision for user
 Whether/when to push `harden/p0-correctness` and open a PR (currently held). Options discussed: hold / push+PR / push only after README made honest.
