@@ -385,10 +385,14 @@ function getSignals() {
  * @returns {Map} Trust scores by package
  */
 function getTrustScores() {
+    // Run correlated-pattern analysis so trust scores (and therefore policy
+    // enforcement, not just the report) reflect exfil/backdoor/crypto/etc.
+    const patternResults = analyzePatterns(signals, currentConfig ? currentConfig.patterns : {});
     return calculateAllScores(signals, {
         deduplicate: currentConfig ? currentConfig.performance.deduplicateSignals !== false : true,
         packageThresholds: currentConfig ? currentConfig.packageThresholds : {},
-        configThresholds: currentConfig ? currentConfig.thresholds : {}
+        configThresholds: currentConfig ? currentConfig.thresholds : {},
+        patternResults
     });
 }
 

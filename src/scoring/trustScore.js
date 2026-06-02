@@ -158,16 +158,56 @@ function buildDedupKey(signal) {
 }
 
 /**
+ * Maximum score a package may keep given a correlated-pattern severity.
+ * Pure additive scoring treats behaviors independently, so a strong combination
+ * (e.g. read .npmrc AND POST to an exfil host) can still land at LOW. The
+ * pattern matcher already recognizes these correlations and assigns a severity;
+ * we let that severity cap the score into the matching risk band so enforcement
+ * actually reacts to it. LOW pattern hits (e.g. a known config loader reading
+ * .env) are intentionally ignored so they never raise risk.
+ */
+const SEVERITY_CEILING = Object.freeze({ CRITICAL: 29, HIGH: 59, MEDIUM: 79 });
+const SEVERITY_RANK = Object.freeze({ CRITICAL: 3, HIGH: 2, MEDIUM: 1 });
+
+/**
+ * Build a map of package name -> highest correlated-pattern severity
+ * (ignoring LOW/unknown). Used to cap scores in calculateAllScores.
+ *
+ * @param {object} patternResults - Output of analyzePatterns()
+ * @returns {Map<string, string>} package name -> 'CRITICAL'|'HIGH'|'MEDIUM'
+ */
+function buildPatternSeverityMap(patternResults) {
+    const map = new Map();
+    if (!patternResults) return map;
+    const categories = ['cryptoMining', 'dataExfiltration', 'backdoors', 'credentialTheft', 'typosquats'];
+    for (const cat of categories) {
+        const arr = patternResults[cat];
+        if (!Array.isArray(arr)) continue;
+        for (const ind of arr) {
+            if (!ind || !ind.package) continue;
+            const rank = SEVERITY_RANK[ind.severity];
+            if (!rank) continue; // ignore LOW / unknown (e.g. dotenv reading .env)
+            const current = map.get(ind.package);
+            if (!current || rank > SEVERITY_RANK[current]) {
+                map.set(ind.package, ind.severity);
+            }
+        }
+    }
+    return map;
+}
+
+/**
  * Calculate trust scores for all packages from signal collection
- * 
+ *
  * Groups signals by package, deduplicates them, then calculates scores.
- * 
+ *
  * @param {Array<object>} allSignals - All captured signals
- * @param {object} options - { deduplicate: boolean, packageThresholds: object, configThresholds: object }
+ * @param {object} options - { deduplicate, packageThresholds, configThresholds, patternResults }
  * @returns {Map<string, object>} Map of packageName -> { score, signals, stats, riskLevel }
  */
 function calculateAllScores(allSignals, options = {}) {
-    const { deduplicate = true, packageThresholds = {}, configThresholds = {} } = options;
+    const { deduplicate = true, packageThresholds = {}, configThresholds = {}, patternResults = null } = options;
+    const patternSeverityMap = buildPatternSeverityMap(patternResults);
     const packageMap = new Map();
 
     // Group signals by package
@@ -195,6 +235,13 @@ function calculateAllScores(allSignals, options = {}) {
     for (const [key, data] of packageMap.entries()) {
         const effectiveSignals = deduplicate ? deduplicateSignals(data.signals) : data.signals;
         let score = calculateTrustScore(effectiveSignals);
+
+        // Correlation-aware cap: a recognized malicious pattern pulls the score
+        // into its risk band, regardless of how few additive signals there were.
+        const patternSeverity = patternSeverityMap.get(data.name);
+        if (patternSeverity && SEVERITY_CEILING[patternSeverity] !== undefined) {
+            score = Math.min(score, SEVERITY_CEILING[patternSeverity]);
+        }
 
         // Apply per-package threshold override
         const customThreshold = packageThresholds[data.name];

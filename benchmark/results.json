@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-02T04:43:26.575Z",
+  "generatedAt": "2026-06-02T04:49:22.111Z",
   "corpus": {
     "malicious": 7,
     "benign": 7
@@ -9,8 +9,8 @@
       "name": "pkg-shai-hulud-sim",
       "label": "malicious",
       "attack": "Install-time secret theft (Shai-Hulud / event-stream class)",
-      "score": 41,
-      "riskLevel": "HIGH",
+      "score": 29,
+      "riskLevel": "CRITICAL",
       "signalTypes": [
         "ENV_ACCESS",
         "FS_READ",
@@ -51,8 +51,8 @@
       "name": "pkg-reverse-shell-sim",
       "label": "malicious",
       "attack": "Reverse-shell backdoor (dependency-confusion class)",
-      "score": 69,
-      "riskLevel": "MEDIUM",
+      "score": 59,
+      "riskLevel": "HIGH",
       "signalTypes": [
         "FS_READ",
         "SHELL_EXEC",
@@ -76,8 +76,8 @@
       "name": "expresss",
       "label": "malicious",
       "attack": "Typosquat (crossenv class) — name impersonates \"express\"",
-      "score": 70,
-      "riskLevel": "MEDIUM",
+      "score": 29,
+      "riskLevel": "CRITICAL",
       "signalTypes": [
         "ENV_ACCESS",
         "FS_READ",
@@ -90,8 +90,8 @@
       "name": "pkg-deferred-exfil-sim",
       "label": "malicious",
       "attack": "Async-deferred exfil (evasion: behavior runs after stack unwinds)",
-      "score": 75,
-      "riskLevel": "MEDIUM",
+      "score": 59,
+      "riskLevel": "HIGH",
       "signalTypes": [
         "ENV_ACCESS",
         "FS_READ",
@@ -101,9 +101,9 @@
       "patternFlagged": true
     },
     {
-      "name": "pkg-dotenv-like",
+      "name": "dotenv",
       "label": "benign",
-      "attack": "Config loader that legitimately reads .env (must NOT be flagged)",
+      "attack": "Known config loader (dotenv) legitimately reading .env — context-aware exemption must NOT flag it",
       "score": 94,
       "riskLevel": "LOW",
       "signalTypes": [
@@ -190,17 +190,6 @@
   "matrices": {
     "criticalOnly": {
       "label": "critical-only (<30)  [DEFAULT GATE]",
-      "tp": 0,
-      "fp": 0,
-      "tn": 7,
-      "fn": 7,
-      "recall": 0,
-      "precision": 0,
-      "fpRate": 0,
-      "f1": 0
-    },
-    "highPlus": {
-      "label": "high+ (<60)",
       "tp": 2,
       "fp": 0,
       "tn": 7,
@@ -209,6 +198,17 @@
       "precision": 1,
       "fpRate": 0,
       "f1": 0.4444444444444445
+    },
+    "highPlus": {
+      "label": "high+ (<60)",
+      "tp": 5,
+      "fp": 0,
+      "tn": 7,
+      "fn": 2,
+      "recall": 0.7142857142857143,
+      "precision": 1,
+      "fpRate": 0,
+      "f1": 0.8333333333333333
     },
     "mediumPlus": {
       "label": "medium+ (<80)",

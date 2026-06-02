@@ -130,10 +130,10 @@ const MALICIOUS = [
 
 const BENIGN = [
     {
-        name: 'pkg-dotenv-like',
+        name: 'dotenv',
         version: '1.0.0',
         label: 'benign',
-        attack: 'Config loader that legitimately reads .env (must NOT be flagged)',
+        attack: 'Known config loader (dotenv) legitimately reading .env — context-aware exemption must NOT flag it',
         code: `
             const fs = require('fs');
             try { const c = fs.readFileSync('.env', 'utf8'); } catch (e) {}
