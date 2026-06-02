@@ -25,6 +25,9 @@ See `benchmark/FINDINGS.md`, `docs/THREAT_MODEL.md`, `docs/ENTERPRISE.md`, and
 - **CLI integration tests** that drive the actual binaries (`npm run test:cli`),
   plus a `.d.ts`↔runtime drift guard. Test count: ~41 → 68.
 - `ingestSignals`, `findViolatingPackages` added to the public API.
+- **Persistence detection** (both engines): writing to shell rc / cron / ssh
+  `authorized_keys` / systemd / autostart during install or use is flagged HIGH
+  (`PERSISTENCE_MECHANISM`) — a hallmark of supply-chain implants.
 
 ### Fixed
 

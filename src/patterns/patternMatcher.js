@@ -13,7 +13,8 @@ const {
     DATA_EXFILTRATION_PATTERNS,
     BACKDOOR_PATTERNS,
     CREDENTIAL_THEFT_PATTERNS,
-    TYPOSQUAT_PATTERNS
+    TYPOSQUAT_PATTERNS,
+    PERSISTENCE_PATTERNS
 } = require('./malwareSignatures');
 
 /**
@@ -319,6 +320,25 @@ function detectBackdoors(signals) {
                     indicator: `Port ${port}`,
                     signal
                 });
+            }
+        }
+
+        // Persistence: writing to shell rc / cron / ssh / systemd / autostart.
+        // A dependency has no legitimate reason to modify these during use or
+        // install — it is how supply-chain implants survive and re-trigger.
+        if (signal.type === SignalType.FS_WRITE) {
+            const writePath = signal.metadata.path || '';
+            for (const loc of PERSISTENCE_PATTERNS.locations) {
+                if (writePath.includes(loc)) {
+                    indicators.push({
+                        type: 'PERSISTENCE_MECHANISM',
+                        severity: 'HIGH',
+                        package: signal.package,
+                        indicator: `Writes to persistence location: ${loc}`,
+                        signal
+                    });
+                    break;
+                }
             }
         }
     }

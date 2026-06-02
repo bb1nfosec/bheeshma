@@ -26,6 +26,7 @@ const path = require('path');
 const { createSignal, SignalType } = require('../signals/signalTypes');
 const { isPackageManagerEntry } = require('../util/processKind');
 const { analyzeHostname } = require('../analysis/dnsAnalysis');
+const { PERSISTENCE_PATTERNS } = require('../patterns/malwareSignatures');
 
 // Syscalls we trace. Kept tight: the behaviors that matter for supply-chain
 // detection, plus process-lineage syscalls for attribution.
@@ -244,11 +245,17 @@ function run(command, args, opts = {}) {
                 return;
             }
 
-            // openat: only flag sensitive/credential file reads (others are noise).
-            const open = body.match(/^openat\([^,]+,\s*"([^"]+)"/);
+            // openat: flag credential-file READS and persistence-location WRITES
+            // (other file activity is noise). Capture the flags to tell them apart.
+            const open = body.match(/^openat\([^,]+,\s*"([^"]+)",\s*([^,)]+)/);
             if (open) {
                 const p = open[1];
-                if (SENSITIVE_FILE.test(p)) {
+                const flags = open[2] || '';
+                const isWrite = /O_WRONLY|O_RDWR|O_CREAT|O_APPEND/.test(flags);
+                if (isWrite && PERSISTENCE_PATTERNS.locations.some(loc => p.includes(loc))) {
+                    const owner = attributionFor(pid);
+                    if (owner) push(SignalType.FS_WRITE, { path: p, operation: 'openat' }, owner, pid);
+                } else if (!isWrite && SENSITIVE_FILE.test(p)) {
                     const owner = attributionFor(pid);
                     if (owner) push(SignalType.FS_READ, { path: p, operation: 'openat' }, owner, pid);
                 }

@@ -87,8 +87,8 @@ Scanning like the in-process engine. `ubuntu-latest` runners ship `strace`:
 ## Roadmap for the out-of-process engine
 
 The strace-based engine is a proof of concept. Network connects, raw sockets,
-process execs, sensitive-file reads, and **DNS query names** (parsed from the
-wire payload) are covered. The intended trajectory:
+process execs, sensitive-file reads, **DNS query names** (parsed from the wire
+payload), and **persistence writes** (shell rc / cron / ssh / systemd) are covered. The intended trajectory:
 - remaining syscall coverage (compressed DNS names, broader file semantics);
 - lower-overhead observation via **eBPF** where privileges allow;
 - policy-as-code enforcement (seccomp/Landlock) for fine-grained allow/deny;
