@@ -38,3 +38,6 @@ bheeshma-results.sarif
 # Real malware samples + their results must NEVER be committed
 benchmark/samples/
 benchmark/malware-results.json
+
+# Internal session notes (not for the published repo)
+RESUME.md
