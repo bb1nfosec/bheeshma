@@ -253,6 +253,12 @@ function uninstall() {
         for (const [fnName, originalFn] of Object.entries(originalFunctions)) {
             if (originalFn) {
                 dns[fnName] = originalFn;
+                // Clear the saved reference. hookDnsFunction() guards re-wrapping
+                // with `if (originalFunctions[fnName]) return`; leaving these set
+                // makes a subsequent init() short-circuit, silently killing DNS
+                // hooking for the rest of the process (breaks repeated
+                // init/teardown — tests, benchmarks, programmatic reuse).
+                originalFunctions[fnName] = null;
             }
         }
 

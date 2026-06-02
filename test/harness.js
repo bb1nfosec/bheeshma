@@ -114,6 +114,19 @@ function setupMockPackages() {
         module.exports = { merge: function() {} };
     `, 'utf8');
 
+    // --- test-dns: a third-party package that performs a DNS lookup. Used to
+    //     verify DNS capture works AND keeps working after repeated
+    //     init/teardown cycles (regression guard: dnsHook.uninstall must clear
+    //     its saved originals or re-install silently no-ops).
+    const dnsDir = path.join(nodeModulesDir, 'test-dns');
+    if (!fs.existsSync(dnsDir)) fs.mkdirSync(dnsDir, { recursive: true });
+    fs.writeFileSync(path.join(dnsDir, 'package.json'), JSON.stringify({ name: 'test-dns', version: '1.0.0', main: 'index.js' }), 'utf8');
+    fs.writeFileSync(path.join(dnsDir, 'index.js'), `
+        const dns = require('dns');
+        try { dns.lookup('example.com', () => {}); } catch (e) {}
+        module.exports = {};
+    `, 'utf8');
+
     // --- test-deferred-net: defers http.get + net.createConnection across an
     //     async boundary (setImmediate). Regression guard for two classes of bug:
     //       1. http.get / net.createConnection bypassing the hooks entirely
@@ -361,15 +374,17 @@ async function runTests() {
     console.log('-'.repeat(70));
     bheeshma.init();
     try {
-        const dns = require('dns');
-        dns.lookup('localhost', () => {});
-        await sleep(100);
+        // DNS call comes from a THIRD-PARTY package (first-party calls have no
+        // package attribution and would never record a signal). This also runs
+        // after several init/teardown cycles, so it guards the reinstall bug.
+        require('./node_modules/test-dns/index.js');
+        await sleep(150);
 
-        const dnsSignals = bheeshma.getSignals().filter(s => s.type === 'DNS_QUERY');
-        console.log(`  DNS signals captured: ${dnsSignals.length}`);
-        assert(dnsSignals.length >= 0, 'DNS hook should not crash');
+        const dnsSignals = bheeshma.getSignals().filter(s => s.type === 'DNS_QUERY' && s.package === 'test-dns');
+        console.log(`  DNS signals captured from third-party package: ${dnsSignals.length}`);
+        assert(dnsSignals.length > 0, 'DNS hook should capture third-party DNS lookups (incl. after re-init)');
     } catch (err) {
-        assert(true, 'DNS hook test skipped (dns module unavailable)');
+        assert(false, 'DNS hook test failed: ' + err.message);
     }
     resetBetweenTests();
     console.log('');

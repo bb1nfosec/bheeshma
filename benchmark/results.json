@@ -1,0 +1,238 @@
+{
+  "generatedAt": "2026-06-02T03:45:35.699Z",
+  "corpus": {
+    "malicious": 7,
+    "benign": 7
+  },
+  "results": [
+    {
+      "name": "pkg-shai-hulud-sim",
+      "label": "malicious",
+      "attack": "Install-time secret theft (Shai-Hulud / event-stream class)",
+      "score": 0,
+      "riskLevel": "CRITICAL",
+      "signalTypes": [
+        "ENV_ACCESS",
+        "FS_READ",
+        "SHELL_EXEC",
+        "HTTPS_REQUEST",
+        "DNS_QUERY"
+      ],
+      "patternFlagged": true
+    },
+    {
+      "name": "pkg-crypto-miner-sim",
+      "label": "malicious",
+      "attack": "Cryptojacking (ua-parser-js class)",
+      "score": 0,
+      "riskLevel": "CRITICAL",
+      "signalTypes": [
+        "ENV_ACCESS",
+        "FS_READ",
+        "SHELL_EXEC",
+        "NET_CONNECT",
+        "DNS_QUERY"
+      ],
+      "patternFlagged": true
+    },
+    {
+      "name": "pkg-dns-tunnel-sim",
+      "label": "malicious",
+      "attack": "DNS tunneling exfiltration (flatmap-stream class)",
+      "score": 89,
+      "riskLevel": "LOW",
+      "signalTypes": [
+        "FS_READ",
+        "DNS_QUERY"
+      ],
+      "patternFlagged": false
+    },
+    {
+      "name": "pkg-reverse-shell-sim",
+      "label": "malicious",
+      "attack": "Reverse-shell backdoor (dependency-confusion class)",
+      "score": 0,
+      "riskLevel": "CRITICAL",
+      "signalTypes": [
+        "ENV_ACCESS",
+        "FS_READ",
+        "SHELL_EXEC",
+        "NET_CONNECT"
+      ],
+      "patternFlagged": true
+    },
+    {
+      "name": "pkg-obfuscated-loader-sim",
+      "label": "malicious",
+      "attack": "Obfuscated payload + HTTP GET exfil",
+      "score": 87,
+      "riskLevel": "LOW",
+      "signalTypes": [
+        "FS_READ",
+        "HTTP_REQUEST"
+      ],
+      "patternFlagged": false
+    },
+    {
+      "name": "expresss",
+      "label": "malicious",
+      "attack": "Typosquat (crossenv class) — name impersonates \"express\"",
+      "score": 70,
+      "riskLevel": "MEDIUM",
+      "signalTypes": [
+        "ENV_ACCESS",
+        "FS_READ",
+        "HTTPS_REQUEST",
+        "DNS_QUERY"
+      ],
+      "patternFlagged": true
+    },
+    {
+      "name": "pkg-deferred-exfil-sim",
+      "label": "malicious",
+      "attack": "Async-deferred exfil (evasion: behavior runs after stack unwinds)",
+      "score": 75,
+      "riskLevel": "MEDIUM",
+      "signalTypes": [
+        "ENV_ACCESS",
+        "FS_READ",
+        "HTTPS_REQUEST",
+        "DNS_QUERY"
+      ],
+      "patternFlagged": true
+    },
+    {
+      "name": "pkg-dotenv-like",
+      "label": "benign",
+      "attack": "Config loader that legitimately reads .env (must NOT be flagged)",
+      "score": 94,
+      "riskLevel": "LOW",
+      "signalTypes": [
+        "FS_READ"
+      ],
+      "patternFlagged": true
+    },
+    {
+      "name": "pkg-http-api-client",
+      "label": "benign",
+      "attack": "Legit HTTPS API client (axios-like) calling a normal API host",
+      "score": 80,
+      "riskLevel": "LOW",
+      "signalTypes": [
+        "ENV_ACCESS",
+        "FS_READ",
+        "HTTPS_REQUEST",
+        "DNS_QUERY"
+      ],
+      "patternFlagged": false
+    },
+    {
+      "name": "pkg-file-logger",
+      "label": "benign",
+      "attack": "Logging library writing to a log file",
+      "score": 87,
+      "riskLevel": "LOW",
+      "signalTypes": [
+        "FS_READ",
+        "FS_WRITE"
+      ],
+      "patternFlagged": false
+    },
+    {
+      "name": "pkg-config-reader",
+      "label": "benign",
+      "attack": "Reads config files + a couple env vars (normal app config)",
+      "score": 84,
+      "riskLevel": "LOW",
+      "signalTypes": [
+        "ENV_ACCESS",
+        "FS_READ"
+      ],
+      "patternFlagged": false
+    },
+    {
+      "name": "pkg-build-tool",
+      "label": "benign",
+      "attack": "Build tool that legitimately spawns a child process (tsc-like)",
+      "score": 0,
+      "riskLevel": "CRITICAL",
+      "signalTypes": [
+        "ENV_ACCESS",
+        "FS_READ",
+        "SHELL_EXEC"
+      ],
+      "patternFlagged": true
+    },
+    {
+      "name": "pkg-telemetry-sdk",
+      "label": "benign",
+      "attack": "Analytics SDK: env + file read + one HTTPS call (mixed but innocent)",
+      "score": 72,
+      "riskLevel": "MEDIUM",
+      "signalTypes": [
+        "ENV_ACCESS",
+        "FS_READ",
+        "HTTPS_REQUEST",
+        "DNS_QUERY"
+      ],
+      "patternFlagged": false
+    },
+    {
+      "name": "pkg-pure-util",
+      "label": "benign",
+      "attack": "Pure computation, no side effects (lodash-like)",
+      "score": 97,
+      "riskLevel": "LOW",
+      "signalTypes": [
+        "FS_READ"
+      ],
+      "patternFlagged": false
+    }
+  ],
+  "matrices": {
+    "criticalOnly": {
+      "label": "critical-only (<30)  [DEFAULT GATE]",
+      "tp": 3,
+      "fp": 1,
+      "tn": 6,
+      "fn": 4,
+      "recall": 0.42857142857142855,
+      "precision": 0.75,
+      "fpRate": 0.14285714285714285,
+      "f1": 0.5454545454545454
+    },
+    "highPlus": {
+      "label": "high+ (<60)",
+      "tp": 3,
+      "fp": 1,
+      "tn": 6,
+      "fn": 4,
+      "recall": 0.42857142857142855,
+      "precision": 0.75,
+      "fpRate": 0.14285714285714285,
+      "f1": 0.5454545454545454
+    },
+    "mediumPlus": {
+      "label": "medium+ (<80)",
+      "tp": 5,
+      "fp": 2,
+      "tn": 5,
+      "fn": 2,
+      "recall": 0.7142857142857143,
+      "precision": 0.7142857142857143,
+      "fpRate": 0.2857142857142857,
+      "f1": 0.7142857142857143
+    },
+    "scoreOrPattern": {
+      "label": "medium+ OR pattern hit (best available today)",
+      "tp": 5,
+      "fp": 3,
+      "tn": 4,
+      "fn": 2,
+      "recall": 0.7142857142857143,
+      "precision": 0.625,
+      "fpRate": 0.42857142857142855,
+      "f1": 0.6666666666666666
+    }
+  }
+}
