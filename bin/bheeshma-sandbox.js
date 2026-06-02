@@ -26,6 +26,7 @@ const { calculateAllScores, findViolatingPackages } = require('../src/scoring/tr
 const { getDefaultConfig } = require('../src/config/configLoader');
 const cliFormatter = require('../src/output/cliFormatter');
 const jsonFormatter = require('../src/output/jsonFormatter');
+const sarifFormatter = require('../src/output/sarifFormatter');
 
 function parseArgs(argv) {
     const o = { enforce: false, failLevel: 'critical', format: 'cli', output: null, blockNetwork: false, command: null, commandArgs: [] };
@@ -77,13 +78,19 @@ async function main() {
     let report;
     if (opts.format === 'json') {
         report = jsonFormatter.formatReport(scores, result.signals, patternResults);
+    } else if (opts.format === 'sarif') {
+        let toolVersion = '0.0.0';
+        try { toolVersion = require('../package.json').version; } catch (e) { /* default */ }
+        report = sarifFormatter.formatReport(scores, result.signals, patternResults, { toolVersion, skipLow: true });
     } else {
         report = cliFormatter.formatReport(scores, result.signals, patternResults);
     }
 
-    if (opts.output) {
-        fs.writeFileSync(opts.output, report, 'utf8');
-        log(`report written to ${opts.output}`);
+    // SARIF defaults to a file (it's for tooling, not the terminal).
+    const outPath = opts.output || (opts.format === 'sarif' ? 'bheeshma-sandbox.sarif' : null);
+    if (outPath) {
+        fs.writeFileSync(outPath, report, 'utf8');
+        log(`report written to ${outPath}`);
     } else if (opts.format === 'json') {
         process.stdout.write(report + '\n');
     } else {

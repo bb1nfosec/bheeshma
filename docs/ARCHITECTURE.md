@@ -72,10 +72,22 @@ in-process signals** — the egress is done by a native process — while the
 out-of-process engine records the `execve` + `connect` and attributes them to
 the package. See `bin/bheeshma-sandbox.js`.
 
+## CI usage
+
+`bheeshma-sandbox` emits SARIF (`--format sarif`), so it plugs into GitHub Code
+Scanning like the in-process engine. `ubuntu-latest` runners ship `strace`:
+
+```yaml
+- run: npx bheeshma-sandbox --enforce --fail-level high --format sarif \
+       --output bheeshma-sandbox.sarif -- npm ci
+- uses: github/codeql-action/upload-sarif@v3
+  with: { sarif_file: bheeshma-sandbox.sarif }
+```
+
 ## Roadmap for the out-of-process engine
 
 The strace-based engine is a proof of concept. The intended trajectory:
-- richer syscall coverage (DNS, raw sockets, more file semantics);
+- richer syscall coverage (DNS hostnames, raw sockets, more file semantics);
 - lower-overhead observation via **eBPF** where privileges allow;
 - policy-as-code enforcement (seccomp/Landlock) for fine-grained allow/deny;
 - a hardened, reusable sandbox profile (the `benchmark/sandbox/` image is a start).
