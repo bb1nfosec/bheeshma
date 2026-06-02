@@ -72,8 +72,35 @@ inflating apparent detection and producing a benign-build-tool false positive.
   package's own `index.js` during `require` records one cosmetic FS_READ per
   package (uniform, does not change classification).
 
+## Real-package false positives (measured)
+
+Detection on synthetic malware is only half the story; the number that decides
+whether a CI gate is usable is the **false-positive rate on real dependencies**.
+Measured by installing popular packages and requiring each under monitoring
+(`node benchmark/fp-real.js`, network required):
+
+| Gate | False positives (71 real packages incl. the full Express tree) |
+|---|---|
+| critical (<30) | **0%** |
+| **high+ (<60)** | **0%** |
+| medium+ (<80) | 10% (7 benign packages at MEDIUM from a few load-time env reads) |
+
+59 of 71 packages produced **no signals at all**; the rest only light env/file
+activity. Combined with the synthetic detection result, **`high+` is the
+recommended gate: 100% detection on the modeled attacks and 0% false positives
+on real packages** in these corpora.
+
+This measurement is what surfaced the most severe FP bug (now fixed): Node's CJS
+loader reads every `.js` file of a package through the hooked `fs`, so simply
+`require()`-ing a multi-file package like **express** produced 100+ FS_READ
+signals and scored it **0 / CRITICAL**. BHEESHMA now ignores reads issued by the
+module loader (loading code ≠ the package performing deliberate I/O); express
+went from `0/CRITICAL` to a benign score.
+
 ## Reproduce
 
 ```
-node benchmark/run.js          # prints the table above, writes results.json
+node benchmark/run.js          # synthetic detection corpus, writes results.json
+node benchmark/perf.js         # monitoring-overhead microbenchmark
+node benchmark/fp-real.js      # real-package false-positive sweep (needs network)
 ```

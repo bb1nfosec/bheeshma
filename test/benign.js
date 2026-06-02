@@ -16,8 +16,11 @@ const path = require('path');
  */
 function init() {
     try {
-        // Read package.json (common benign operation)
-        const packagePath = path.join(__dirname, '../package.json');
+        // Read this package's own package.json (common, benign operation).
+        // Use its own dir (the harness writes it) so the read actually happens
+        // and produces a legitimate, deliberate FS_READ signal — not the
+        // module-loader read that bheeshma now (correctly) ignores.
+        const packagePath = path.join(__dirname, 'package.json');
 
         if (fs.existsSync(packagePath)) {
             const content = fs.readFileSync(packagePath, 'utf8');
