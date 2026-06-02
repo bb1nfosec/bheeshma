@@ -28,7 +28,7 @@ const { isPackageManagerEntry } = require('../util/processKind');
 
 // Syscalls we trace. Kept tight: the behaviors that matter for supply-chain
 // detection, plus process-lineage syscalls for attribution.
-const TRACED = 'execve,connect,openat,clone,clone3,fork,vfork';
+const TRACED = 'execve,connect,socket,openat,clone,clone3,fork,vfork';
 
 // Credential / secret files worth flagging on read (others are loader/noise).
 const SENSITIVE_FILE = /(^|\/)(\.npmrc|\.env|\.netrc|\.git-credentials|id_rsa|id_ed25519|credentials|\.aws\/|\.ssh\/)/;
@@ -78,7 +78,11 @@ function run(command, args, opts = {}) {
             return rootPackage;
         };
 
-        const straceArgs = ['-f', '-qq', '-y', '-s', '256', '-e', `trace=${TRACED}`, command, ...args];
+        // -v expands the execve environment array, which carries
+        // `npm_package_name=<pkg>` for dependency lifecycle scripts — the most
+        // reliable way to attribute an `npm install` postinstall to its package
+        // (npm runs the script with a relative argv, so the path alone won't do).
+        const straceArgs = ['-v', '-f', '-qq', '-y', '-s', '256', '-e', `trace=${TRACED}`, command, ...args];
         let child;
         try {
             child = spawn('strace', straceArgs, {
@@ -124,7 +128,12 @@ function run(command, args, opts = {}) {
                 const exePath = exec[1];
                 const argv = exec[2];
                 // Attribute this pid to the package whose lifecycle script it runs.
-                const fromArgs = extractPackageFromPath(argv) || extractPackageFromPath(exePath);
+                // Prefer npm's own `npm_package_name` env var (set for lifecycle
+                // scripts and present in the -v execve env), then fall back to a
+                // node_modules/<pkg> path in argv/exe for non-npm invocations.
+                const npmName = body.match(/"npm_package_name=([^"]+)"/);
+                const fromArgs = (npmName && npmName[1]) ||
+                    extractPackageFromPath(argv) || extractPackageFromPath(exePath);
                 const attributable = fromArgs && !isPackageManagerEntry(exePath);
                 // The first execve is the root process; seed the fallback package.
                 if (!rootResolved) {
@@ -146,6 +155,15 @@ function run(command, args, opts = {}) {
             if (conn) {
                 const owner = attributionFor(pid);
                 if (owner) push(SignalType.NET_CONNECT, { host: conn[2], port: Number(conn[1]), protocol: 'tcp' }, owner, pid);
+                return;
+            }
+
+            // socket(): flag RAW sockets — packet crafting / covert channels,
+            // not something a benign install/build does.
+            const sock = body.match(/^socket\(([^,]+),\s*([^,]+),/);
+            if (sock && /SOCK_RAW/.test(sock[2])) {
+                const owner = attributionFor(pid);
+                if (owner) push(SignalType.NET_CONNECT, { host: 'raw-socket', port: 0, protocol: 'raw', family: sock[1].trim() }, owner, pid);
                 return;
             }
 

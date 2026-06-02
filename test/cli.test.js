@@ -137,6 +137,28 @@ function run() {
     check(isPackageManagerEntry('/app/node_modules/evilpkg/index.js') === false, 'does NOT flag a dependency entry');
     check(isPackageManagerEntry('/app/server.js') === false, 'does NOT flag ordinary app code');
 
+    // --- out-of-process engine: catches native subprocess egress (skipped w/o strace) ---
+    console.log('\nbheeshma-sandbox — out-of-process engine (Linux + strace)');
+    const hasStrace = spawnSync('which', ['strace'], { encoding: 'utf8' }).status === 0;
+    if (!hasStrace) {
+        console.log('  (skipped: strace not available on this platform)');
+    } else {
+        const sbxPkg = path.join(work, 'node_modules', 'nativeexfil');
+        fs.mkdirSync(sbxPkg, { recursive: true });
+        fs.writeFileSync(path.join(sbxPkg, 'package.json'), JSON.stringify({ name: 'nativeexfil', version: '1.0.0' }));
+        // Payload shells out to curl — native egress the in-process engine cannot see.
+        // Target a closed local port so the test stays offline and fast.
+        fs.writeFileSync(path.join(sbxPkg, 'payload.js'),
+            `try{require('child_process').execSync('curl -s --max-time 2 http://127.0.0.1:9/ >/dev/null 2>&1 || true')}catch(e){}`);
+        const SANDBOX_BIN = path.resolve(__dirname, '../bin/bheeshma-sandbox.js');
+        const rs = spawnSync(process.execPath,
+            [SANDBOX_BIN, '--', 'node', path.join(sbxPkg, 'payload.js')],
+            { cwd: work, encoding: 'utf8' });
+        const out = (rs.stdout || '') + (rs.stderr || '');
+        check(/nativeexfil/.test(out), 'attributes native-subprocess behavior to the package (process lineage)');
+        check(/NET.?CONNECT|NETWORK/i.test(out), 'captures native subprocess egress (curl) that the in-process engine misses');
+    }
+
     // --- types drift guard: index.d.ts must declare exactly the runtime API ---
     console.log('\nindex.d.ts — declared API matches runtime exports');
     const api = require('../src/index');
