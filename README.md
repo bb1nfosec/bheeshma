@@ -6,8 +6,6 @@
 
 **See what your npm dependencies *actually do* when they run — and gate your build on it.**
 
-<img src="assets/bheeshma-demo.gif" alt="bheeshma catching a malicious npm package at runtime" width="680">
-
 [![npm](https://img.shields.io/npm/v/bheeshma?style=for-the-badge&color=cb3837&logo=npm)](https://www.npmjs.com/package/bheeshma)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=for-the-badge)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A514-3c873a?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
@@ -22,6 +20,30 @@
 <a href="#-documentation">Docs</a>
 
 </div>
+
+---
+
+## ⚡ See it in action
+
+A package that quietly reads `~/.npmrc` and POSTs it to an unknown host — caught at runtime, scored, and failed in CI:
+
+```console
+$ npx bheeshma --enforce -- node app.js
+
+══════════════════════════════════════════════════════════════════════
+  BHEESHMA Runtime Dependency Behavior Report
+══════════════════════════════════════════════════════════════════════
+  📦 chalk-helper@2.4.1            Trust Score:  29/100   🔴 CRITICAL
+
+  Observed behaviors
+     🔐 ENV ACCESS   📖 FS READ ~/.npmrc   🌍 HTTPS REQUEST   🧭 DNS QUERY
+
+  Pattern analysis — behavioral correlations  (2 threats)
+     📤 Data exfiltration   CRITICAL   read .npmrc  +  outbound HTTPS
+     🔑 Credential theft    HIGH       CREDENTIAL_FILE_READ — .npmrc
+──────────────────────────────────────────────────────────────────────
+  ✗ POLICY VIOLATION: chalk-helper@2.4.1 is CRITICAL          → exit 1
+```
 
 ---
 
