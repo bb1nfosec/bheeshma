@@ -137,6 +137,19 @@ function run() {
     check(isPackageManagerEntry('/app/node_modules/evilpkg/index.js') === false, 'does NOT flag a dependency entry');
     check(isPackageManagerEntry('/app/server.js') === false, 'does NOT flag ordinary app code');
 
+    // --- types drift guard: index.d.ts must declare exactly the runtime API ---
+    console.log('\nindex.d.ts — declared API matches runtime exports');
+    const api = require('../src/index');
+    const runtimeExports = Object.keys(api).sort();
+    const dts = fs.readFileSync(path.resolve(__dirname, '../src/index.d.ts'), 'utf8');
+    const declared = [...new Set(
+        [...dts.matchAll(/export function ([a-zA-Z0-9_]+)\s*[<(]/g)].map(m => m[1])
+    )].sort();
+    const missing = runtimeExports.filter(n => !declared.includes(n));
+    const extra = declared.filter(n => !runtimeExports.includes(n));
+    check(missing.length === 0, `every runtime export is declared in index.d.ts${missing.length ? ' (missing: ' + missing.join(', ') + ')' : ''}`);
+    check(extra.length === 0, `index.d.ts declares no phantom exports${extra.length ? ' (extra: ' + extra.join(', ') + ')' : ''}`);
+
     cleanup();
 
     console.log('\n' + '='.repeat(70));
