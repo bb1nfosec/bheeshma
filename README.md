@@ -75,7 +75,7 @@ Add to your CI pipeline — one YAML line:
 
 ```yaml
 # .github/workflows/ci.yml
-- uses: bb1nfosec/bheeshma/.github/actions/bheeshma@main
+- uses: bb1nfosec/bheeshma/.github/actions/bheeshma@v3.0.0
   with:
     command: 'npm test'
     fail-level: 'high'
@@ -118,7 +118,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - uses: bb1nfosec/bheeshma/.github/actions/bheeshma@main
+      - uses: bb1nfosec/bheeshma/.github/actions/bheeshma@v3.0.0
         with:
           command: 'npm test'
           fail-level: 'high'        # fail on HIGH+ (default; see docs/ENTERPRISE.md)
@@ -140,13 +140,13 @@ jobs:
 
 ```yaml
 - name: Monitor npm install
-  uses: bb1nfosec/bheeshma/.github/actions/bheeshma@main
+  uses: bb1nfosec/bheeshma/.github/actions/bheeshma@v3.0.0
   with:
     command: 'npm ci'
     fail-level: 'high'
 
 - name: Monitor tests
-  uses: bb1nfosec/bheeshma/.github/actions/bheeshma@main
+  uses: bb1nfosec/bheeshma/.github/actions/bheeshma@v3.0.0
   with:
     command: 'npm test'
     fail-level: 'critical'
