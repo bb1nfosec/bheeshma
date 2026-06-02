@@ -15,7 +15,7 @@
 
 const net = require('net');
 const { createSignal, SignalType } = require('../signals/signalTypes');
-const { resolveCurrentStack } = require('../attribution/resolver');
+const { resolveCurrentStackFast } = require('../attribution/resolver');
 
 /**
  * Global signal collector
@@ -159,11 +159,17 @@ function parseNetConnectArgs(args) {
  */
 function emitNetSignal(host, port, protocol) {
     try {
-        // Resolve attribution
-        const attribution = resolveCurrentStack();
+        // Resolve attribution (fast: structured stack, no string formatting)
+        const attribution = resolveCurrentStackFast();
 
         // Only emit for third-party packages
         if (!attribution) {
+            return;
+        }
+
+        // Fast-path: skip stack capture + signal build if it would be dropped.
+        if (signalCollector.shouldCapture &&
+            !signalCollector.shouldCapture(attribution.name, attribution.version)) {
             return;
         }
 

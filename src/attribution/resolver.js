@@ -285,6 +285,53 @@ function resolveCurrentStack() {
 }
 
 /**
+ * Fast current-package resolution for the hot path (every hooked call).
+ *
+ * Avoids formatting a full stack STRING (the dominant per-call cost) and the
+ * subsequent line splitting + regex. Instead it uses V8's structured stack
+ * trace API (Error.prepareStackTrace returning raw CallSite objects) and reads
+ * each frame's filename directly. Walks all frames and keeps the OUTERMOST
+ * node_modules match (closest to user code), matching getPackageFromStack.
+ * Falls back to the async attribution context when no frame is in node_modules.
+ *
+ * @returns {object|null} { name, version, path } or null
+ */
+function resolveCurrentStackFast() {
+    const originalPrepare = Error.prepareStackTrace;
+    const originalLimit = Error.stackTraceLimit;
+    let frames = null;
+    try {
+        Error.prepareStackTrace = (_err, callSites) => callSites;
+        Error.stackTraceLimit = 50;
+        const holder = {};
+        Error.captureStackTrace(holder, resolveCurrentStackFast);
+        frames = holder.stack;
+    } catch (err) {
+        frames = null;
+    } finally {
+        Error.prepareStackTrace = originalPrepare;
+        Error.stackTraceLimit = originalLimit;
+    }
+
+    if (Array.isArray(frames)) {
+        let last = null;
+        for (let i = 0; i < frames.length; i++) {
+            let fileName;
+            try { fileName = frames[i].getFileName(); } catch (e) { continue; }
+            if (!fileName) continue;
+            const idx = fileName.indexOf('node_modules');
+            if (idx === -1) continue;
+            const info = extractPackageInfo(fileName, idx);
+            if (info) last = info;
+        }
+        if (last) return last;
+    }
+
+    // No third-party frame on the live stack — fall back to async context.
+    return getCurrentPackage();
+}
+
+/**
  * Check if a package name matches a whitelist pattern.
  * Supports: exact match ("express"), wildcard ("express@*"), scoped ("@types/*")
  * 
@@ -346,6 +393,7 @@ function isWhitelisted(packageName, packageVersion, whitelist) {
 module.exports = {
     resolvePackageFromStack,
     resolveCurrentStack,
+    resolveCurrentStackFast,
     getPackageFromStack,
     getPackageFromPath,
     resolveResponsible,

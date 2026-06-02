@@ -13,7 +13,7 @@
 const http = require('http');
 const https = require('https');
 const { createSignal, SignalType } = require('../signals/signalTypes');
-const { resolveResponsible } = require('../attribution/resolver');
+const { resolveCurrentStackFast } = require('../attribution/resolver');
 
 let originalHttpRequest = null;
 let originalHttpsRequest = null;
@@ -87,34 +87,35 @@ function createHttpRequestHook(original, isHttps) {
         const requestInfo = parseRequestArgs(args, isHttps);
 
         if (requestInfo) {
-            // Capture stack trace for attribution (async-aware: falls back to
-            // the async context when the originating frames have unwound).
-            const stack = new Error().stack;
-            const attribution = resolveResponsible(stack);
+            // Resolve attribution (fast: structured stack, no string formatting;
+            // async-aware fallback to the async context when frames have unwound).
+            const attribution = resolveCurrentStackFast();
 
-            // Only record signals for third-party packages (not first-party code)
-            if (!attribution) {
-                return original.apply(this, args);
+            // Only record signals for third-party packages, and only when the
+            // signal would actually be kept (skip stack capture + analysis on
+            // the dropped path).
+            if (attribution &&
+                (!signalsArray.shouldCapture ||
+                 signalsArray.shouldCapture(attribution.name, attribution.version))) {
+                const stack = new Error().stack;
+                const signal = createSignal(
+                    isHttps ? SignalType.HTTPS_REQUEST : SignalType.HTTP_REQUEST,
+                    {
+                        url: requestInfo.url,
+                        method: requestInfo.method,
+                        host: requestInfo.host,
+                        port: requestInfo.port,
+                        path: requestInfo.path,
+                        headers: sanitizeHeaders(requestInfo.headers),
+                        suspicious: analyzeSuspiciousness(requestInfo)
+                    },
+                    attribution.name,
+                    attribution.version,
+                    stack
+                );
+
+                signalsArray.push(signal);
             }
-
-            // Create signal
-            const signal = createSignal(
-                isHttps ? SignalType.HTTPS_REQUEST : SignalType.HTTP_REQUEST,
-                {
-                    url: requestInfo.url,
-                    method: requestInfo.method,
-                    host: requestInfo.host,
-                    port: requestInfo.port,
-                    path: requestInfo.path,
-                    headers: sanitizeHeaders(requestInfo.headers),
-                    suspicious: analyzeSuspiciousness(requestInfo)
-                },
-                attribution.name,
-                attribution.version,
-                stack
-            );
-
-            signalsArray.push(signal);
         }
 
         // Call original function
