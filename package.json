@@ -16,7 +16,10 @@
     }
   },
   "scripts": {
-    "test": "node test/harness.js"
+    "test": "node test/harness.js && node test/cli.test.js",
+    "test:unit": "node test/harness.js",
+    "test:cli": "node test/cli.test.js",
+    "benchmark": "node benchmark/run.js"
   },
   "sideEffects": false,
   "keywords": [
