@@ -332,28 +332,53 @@ async function main() {
             console.error(`[BHEESHMA] Executing: ${absolutePath}\n`);
             require(absolutePath);
         } else {
-            // For non-JS files or commands like 'npm test', spawn as child process
+            // For non-JS files or commands like 'npm test', spawn as child
+            // process. The command runs in the child, so monitoring must happen
+            // there: preload ci-preload.js (inherited across the node tree) and
+            // ingest the signals each process writes to BHEESHMA_SIGNAL_DIR.
             console.error(`[BHEESHMA] Executing: ${scriptToRun} ${scriptArgsDirect.join(' ')}\n`);
+
+            const os = require('os');
+            const signalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bheeshma-'));
+
+            const ingestFromDir = () => {
+                try {
+                    for (const file of fs.readdirSync(signalDir)) {
+                        if (!file.endsWith('.json')) continue;
+                        try {
+                            const arr = JSON.parse(fs.readFileSync(path.join(signalDir, file), 'utf8'));
+                            bheeshma.ingestSignals(arr);
+                        } catch (e) { /* skip */ }
+                    }
+                } catch (e) { /* ignore */ }
+                finally {
+                    try { fs.rmSync(signalDir, { recursive: true, force: true }); } catch (e) { /* ignore */ }
+                }
+            };
 
             const { spawn } = require('child_process');
             const child = spawn(scriptToRun, scriptArgsDirect, {
                 stdio: 'inherit',
                 env: {
                     ...process.env,
+                    BHEESHMA_SIGNAL_DIR: signalDir,
+                    ...(options.configPath ? { BHEESHMA_CONFIG_PATH: options.configPath } : {}),
                     NODE_OPTIONS: [
                         process.env.NODE_OPTIONS || '',
-                        '--require', path.resolve(__dirname, '../src/worker-bootstrap.js')
+                        '--require', path.resolve(__dirname, '../src/ci-preload.js')
                     ].filter(Boolean).join(' ')
                 }
             });
 
             child.on('exit', (code) => {
+                ingestFromDir();
                 generateAndOutputReport(code || 0);
                 process.exit(code || 0);
             });
 
             child.on('error', (err) => {
                 console.error(`[BHEESHMA] Error executing command: ${err.message}`);
+                ingestFromDir();
                 generateAndOutputReport(1);
                 process.exit(1);
             });

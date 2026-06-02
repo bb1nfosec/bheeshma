@@ -15,7 +15,7 @@ const netHook = require('./hooks/netHook');
 const childProcHook = require('./hooks/childProcHook');
 const httpHook = require('./hooks/httpHook');
 const dnsHook = require('./hooks/dnsHook');
-const { calculateAllScores, findCriticalPackages, getRiskLevel } = require('./scoring/trustScore');
+const { calculateAllScores, findCriticalPackages, findViolatingPackages, getRiskLevel } = require('./scoring/trustScore');
 const cliFormatter = require('./output/cliFormatter');
 const jsonFormatter = require('./output/jsonFormatter');
 const htmlFormatter = require('./output/htmlFormatter');
@@ -394,6 +394,27 @@ function getSignals() {
 }
 
 /**
+ * Ingest signals collected by another process (the CI child preload).
+ *
+ * The signals were already whitelist-filtered at collection time in the child,
+ * so they are appended directly to the store for scoring/reporting here.
+ *
+ * @param {Array<object>} externalSignals - Serialized signals from a child
+ * @returns {number} Count of signals ingested
+ */
+function ingestSignals(externalSignals) {
+    if (!Array.isArray(externalSignals)) return 0;
+    let count = 0;
+    for (const signal of externalSignals) {
+        if (signal && typeof signal === 'object') {
+            signals.push(signal);
+            count++;
+        }
+    }
+    return count;
+}
+
+/**
  * Get calculated trust scores for all packages
  * 
  * @returns {Map} Trust scores by package
@@ -451,28 +472,35 @@ function generateReport(format = 'cli') {
 }
 
 /**
- * Enforce policy — check if any package exceeds risk thresholds.
- * Returns an object with enforcement results suitable for CI.
- * 
- * @returns {object} { passed: boolean, criticalPackages: [], message: string }
+ * Enforce policy — fail if any package is at or above the configured fail level.
+ *
+ * @param {object} [options] - { failLevel: 'low'|'medium'|'high'|'critical' }
+ *   Defaults to 'critical' (conservative, lowest false-positive posture).
+ * @returns {object} { passed, failLevel, violatingPackages, criticalPackages, message }
+ *   `criticalPackages` is kept as an alias of `violatingPackages` for back-compat.
  */
-function enforcePolicy() {
+function enforcePolicy(options = {}) {
+    const failLevel = options.failLevel || 'critical';
     const scores = getTrustScores();
-    const critical = findCriticalPackages(scores, currentConfig);
+    const violating = findViolatingPackages(scores, failLevel);
 
-    if (critical.length === 0) {
+    if (violating.length === 0) {
         return {
             passed: true,
+            failLevel,
+            violatingPackages: [],
             criticalPackages: [],
-            message: 'All packages within acceptable risk thresholds'
+            message: `All packages within acceptable risk thresholds (fail-level: ${failLevel})`
         };
     }
 
-    const pkgList = critical.map(p => `${p.name}@${p.version} (score: ${p.score})`).join(', ');
+    const pkgList = violating.map(p => `${p.name}@${p.version} (score: ${p.score}, ${p.riskLevel})`).join(', ');
     return {
         passed: false,
-        criticalPackages: critical,
-        message: `POLICY VIOLATION: ${critical.length} package(s) exceed risk threshold: ${pkgList}`
+        failLevel,
+        violatingPackages: violating,
+        criticalPackages: violating,
+        message: `POLICY VIOLATION (fail-level: ${failLevel}): ${violating.length} package(s) at or above ${failLevel.toUpperCase()}: ${pkgList}`
     };
 }
 
@@ -615,5 +643,6 @@ module.exports = {
     sendAlertWebhook,
     teardown,
     monitor,
-    recordSignal
+    recordSignal,
+    ingestSignals
 };

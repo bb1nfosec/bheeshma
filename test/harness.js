@@ -631,7 +631,27 @@ async function runTests() {
     console.log('');
 
     // ===================================================================
-    // Test 19: Teardown
+    // Test 19: Fail-level enforcement selects packages at/above the level
+    // (regression guard: --fail-level high/medium/low were no-ops because
+    //  enforcement only ever collected CRITICAL packages)
+    // ===================================================================
+    console.log('Test Group: Fail-Level Enforcement');
+    console.log('-'.repeat(70));
+    const { findViolatingPackages } = require('../src/scoring/trustScore');
+    const synthScores = new Map([
+        ['a@1', { name: 'a', version: '1', score: 10, riskLevel: 'CRITICAL' }],
+        ['b@1', { name: 'b', version: '1', score: 50, riskLevel: 'HIGH' }],
+        ['c@1', { name: 'c', version: '1', score: 70, riskLevel: 'MEDIUM' }],
+        ['d@1', { name: 'd', version: '1', score: 95, riskLevel: 'LOW' }]
+    ]);
+    assert(findViolatingPackages(synthScores, 'critical').length === 1, 'fail-level critical flags only CRITICAL');
+    assert(findViolatingPackages(synthScores, 'high').length === 2, 'fail-level high flags CRITICAL + HIGH');
+    assert(findViolatingPackages(synthScores, 'medium').length === 3, 'fail-level medium flags CRITICAL + HIGH + MEDIUM');
+    assert(findViolatingPackages(synthScores, 'low').length === 4, 'fail-level low flags all packages');
+    console.log('');
+
+    // ===================================================================
+    // Test 20: Teardown
     // ===================================================================
     console.log('Test Group: Teardown');
     console.log('-'.repeat(70));

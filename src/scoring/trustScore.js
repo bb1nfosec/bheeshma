@@ -313,17 +313,28 @@ function getRiskLevel(score, customThreshold) {
 }
 
 /**
- * Check if any package has CRITICAL risk level (for enforcement mode)
- * 
- * @param {Map} scores - Trust scores map
- * @param {object} config - Configuration with thresholds
- * @returns {object|null} { package, score, riskLevel } or null if all pass
+ * Ordinal ranking of risk levels, used to compare against a fail-level.
  */
-function findCriticalPackages(scores, config = {}) {
-    const critical = [];
+const RISK_RANK = Object.freeze({ LOW: 0, MEDIUM: 1, HIGH: 2, CRITICAL: 3 });
+
+/**
+ * Find every package whose risk level is at or above the given fail level.
+ *
+ * This is what enforcement should use: `fail-level high` must fail on HIGH AND
+ * CRITICAL, not only CRITICAL. (The previous findCriticalPackages returned only
+ * CRITICAL, which silently made `--fail-level high/medium/low` no-ops.)
+ *
+ * @param {Map} scores - Trust scores map
+ * @param {string} failLevel - 'low' | 'medium' | 'high' | 'critical'
+ * @returns {Array<object>} Violating packages { name, version, score, riskLevel }
+ */
+function findViolatingPackages(scores, failLevel = 'critical') {
+    const minRank = RISK_RANK[String(failLevel).toUpperCase()];
+    const threshold = minRank === undefined ? RISK_RANK.CRITICAL : minRank;
+    const violating = [];
     for (const [, data] of scores) {
-        if (data.riskLevel === 'CRITICAL') {
-            critical.push({
+        if (RISK_RANK[data.riskLevel] >= threshold) {
+            violating.push({
                 name: data.name,
                 version: data.version,
                 score: data.score,
@@ -331,7 +342,18 @@ function findCriticalPackages(scores, config = {}) {
             });
         }
     }
-    return critical;
+    return violating;
+}
+
+/**
+ * Check if any package has CRITICAL risk level (for enforcement mode).
+ * Back-compat wrapper around findViolatingPackages(scores, 'critical').
+ *
+ * @param {Map} scores - Trust scores map
+ * @returns {Array<object>} CRITICAL packages
+ */
+function findCriticalPackages(scores) {
+    return findViolatingPackages(scores, 'critical');
 }
 
 module.exports = {
@@ -339,6 +361,8 @@ module.exports = {
     calculateAllScores,
     getRiskLevel,
     findCriticalPackages,
+    findViolatingPackages,
     deduplicateSignals,
-    RISK_WEIGHTS
+    RISK_WEIGHTS,
+    RISK_RANK
 };

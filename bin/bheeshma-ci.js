@@ -17,6 +17,7 @@
 
 const bheeshma = require('../src/index');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 /**
@@ -154,15 +155,23 @@ async function main() {
     ciLog('info', `Executing: ${options.command} ${options.commandArgs.join(' ')}`);
     let exitCode = 0;
 
+    // Collect signals from the process tree that actually runs the command.
+    // The monitored command runs in a CHILD process, so we preload ci-preload.js
+    // there (NODE_OPTIONS is inherited by the whole node tree) and have each
+    // process write its signals to a per-PID file we ingest afterwards.
+    const signalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bheeshma-ci-'));
+
     try {
         const { spawn } = require('child_process');
         const child = spawn(options.command, options.commandArgs, {
             stdio: 'inherit',
             env: {
                 ...process.env,
+                BHEESHMA_SIGNAL_DIR: signalDir,
+                ...(options.configPath ? { BHEESHMA_CONFIG_PATH: options.configPath } : {}),
                 NODE_OPTIONS: [
                     process.env.NODE_OPTIONS || '',
-                    '--require', path.resolve(__dirname, '../src/worker-bootstrap.js')
+                    '--require', path.resolve(__dirname, '../src/ci-preload.js')
                 ].filter(Boolean).join(' ')
             }
         });
@@ -183,8 +192,25 @@ async function main() {
         exitCode = 1;
     }
 
-    // Give hooks a moment to flush pending signals
+    // Give the process tree a moment to finish flushing signal files.
     await new Promise(resolve => setTimeout(resolve, 200));
+
+    // Ingest signals collected by the monitored process tree.
+    try {
+        const files = fs.readdirSync(signalDir).filter(f => f.endsWith('.json'));
+        let ingested = 0;
+        for (const file of files) {
+            try {
+                const arr = JSON.parse(fs.readFileSync(path.join(signalDir, file), 'utf8'));
+                ingested += bheeshma.ingestSignals(arr);
+            } catch (e) { /* skip unreadable file */ }
+        }
+        ciLog('info', `Ingested ${ingested} signal(s) from monitored process tree`);
+    } catch (e) {
+        ciLog('warning', 'Could not read collected signals');
+    } finally {
+        try { fs.rmSync(signalDir, { recursive: true, force: true }); } catch (e) { /* ignore */ }
+    }
 
     // Generate SARIF report
     ciLog('info', 'Generating SARIF report...');
@@ -192,7 +218,9 @@ async function main() {
     ciLog('info', `SARIF report: ${sarifPath}`);
 
     // Check policy
-    const enforcement = bheeshma.enforcePolicy();
+    // The fail level is applied inside enforcePolicy now (it returns every
+    // package at or above the level), so a violation here is authoritative.
+    const enforcement = bheeshma.enforcePolicy({ failLevel: options.failLevel });
 
     // Log summary to stderr
     const scores = bheeshma.getTrustScores();
@@ -200,27 +228,13 @@ async function main() {
     ciLog('info', `Monitored ${scores.size} packages, ${signals.length} signals captured`);
 
     if (!enforcement.passed) {
-        for (const pkg of enforcement.criticalPackages) {
+        for (const pkg of enforcement.violatingPackages) {
             ciLog('error', `POLICY VIOLATION: ${pkg.name}@${pkg.version} — trust score ${pkg.score} (${pkg.riskLevel})`);
         }
         ciLog('error', enforcement.message);
-
-        // Fail based on configured level
-        const shouldFail = enforcement.criticalPackages.some(pkg => {
-            switch (options.failLevel) {
-                case 'low': return true;
-                case 'medium': return ['CRITICAL', 'HIGH', 'MEDIUM'].includes(pkg.riskLevel);
-                case 'high': return ['CRITICAL', 'HIGH'].includes(pkg.riskLevel);
-                case 'critical': return pkg.riskLevel === 'CRITICAL';
-                default: return pkg.riskLevel === 'CRITICAL';
-            }
-        });
-
-        if (shouldFail) {
-            process.exit(1);
-        }
+        process.exit(1);
     } else {
-        ciLog('info', 'All packages within acceptable risk thresholds');
+        ciLog('info', `All packages within acceptable risk thresholds (fail-level: ${options.failLevel})`);
     }
 
     // Propagate original command's exit code if it failed
