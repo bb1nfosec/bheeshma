@@ -24,6 +24,49 @@
 const path = require('path');
 const bheeshma = require('./index');
 
+/**
+ * Is THIS process the package manager itself (npm/npx/yarn/pnpm) rather than
+ * the user/dependency code we care about?
+ *
+ * NODE_OPTIONS is inherited by the whole process tree, so this preload also
+ * loads into the package-manager process during `npm install` / `npm test`.
+ * The package manager's own code lives under node_modules (e.g.
+ * node_modules/npm/**, its bundled semver, etc.), so monitoring it would
+ * attribute hundreds of the manager's own file reads to "packages" named
+ * npm/semver/... — drowning the actual install/lifecycle behavior in noise.
+ *
+ * The package manager runs each dependency lifecycle script (preinstall/
+ * install/postinstall) and `npm test` etc. as SEPARATE child node processes,
+ * which are NOT the manager binary — those we still monitor. We only skip the
+ * manager's own process.
+ */
+function isPackageManagerProcess() {
+    try {
+        const entry = process.argv[1] || '';
+        const base = path.basename(entry);
+        // Match the launcher binary (e.g. .../bin/npm — no extension) and the
+        // CLI entry (npm-cli.js), for npm/npx/yarn/pnpm/corepack.
+        if (/^(npm|npx|yarn|pnpm|corepack)(-cli)?(\.js)?$/.test(base)) {
+            return true;
+        }
+        const nm = `${path.sep}node_modules${path.sep}`;
+        if (entry.includes(`${nm}npm${path.sep}`) ||
+            entry.includes(`${nm}pnpm${path.sep}`) ||
+            entry.includes(`${nm}yarn${path.sep}`)) {
+            return true;
+        }
+        return false;
+    } catch (err) {
+        return false;
+    }
+}
+
+if (isPackageManagerProcess()) {
+    // Don't monitor the package manager's own internals.
+    module.exports = {};
+    return;
+}
+
 try {
     const configPath = process.env.BHEESHMA_CONFIG_PATH;
     bheeshma.init(configPath ? { configPath } : undefined);

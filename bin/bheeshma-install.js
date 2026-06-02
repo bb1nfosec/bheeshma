@@ -24,6 +24,7 @@
 const bheeshma = require('../src/index');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 /**
  * Parse install-specific arguments
@@ -214,13 +215,31 @@ async function main() {
         log('warning', `Some hooks failed: ${initResult.failed ? initResult.failed.join(', ') : 'unknown'}`);
     }
 
-    // Run npm install under monitoring
+    // Run npm install under monitoring.
+    // CRITICAL: the install (and every postinstall script) runs in child
+    // processes, NOT here. We must monitor there — preload ci-preload.js via
+    // NODE_OPTIONS (inherited by npm and every node it spawns, including
+    // postinstall scripts) and ingest the per-PID signal files afterwards.
+    // Without this, the install-monitor — the headline "catch malicious
+    // postinstall" feature — would observe nothing the install actually did.
     const { spawn } = require('child_process');
     const npmArgs = [options.npmCommand, ...options.npmArgs];
+    const signalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bheeshma-install-'));
 
     const child = spawn(npmBin, npmArgs, {
         stdio: 'inherit',
-        cwd: process.cwd()
+        cwd: process.cwd(),
+        env: {
+            ...process.env,
+            BHEESHMA_SIGNAL_DIR: signalDir,
+            ...(options.configPath ? { BHEESHMA_CONFIG_PATH: options.configPath } : {}),
+            // Many postinstall scripts disable npm scripts isolation; ensure our
+            // preload survives by appending to any existing NODE_OPTIONS.
+            NODE_OPTIONS: [
+                process.env.NODE_OPTIONS || '',
+                '--require', path.resolve(__dirname, '../src/ci-preload.js')
+            ].filter(Boolean).join(' ')
+        }
     });
 
     let npmExitCode = 0;
@@ -237,8 +256,20 @@ async function main() {
         });
     });
 
-    // Give hooks a moment to flush
+    // Give the process tree a moment to flush signal files, then ingest.
     await new Promise(resolve => setTimeout(resolve, 300));
+    try {
+        for (const file of fs.readdirSync(signalDir)) {
+            if (!file.endsWith('.json')) continue;
+            try {
+                const arr = JSON.parse(fs.readFileSync(path.join(signalDir, file), 'utf8'));
+                bheeshma.ingestSignals(arr);
+            } catch (e) { /* skip */ }
+        }
+    } catch (e) { /* ignore */ }
+    finally {
+        try { fs.rmSync(signalDir, { recursive: true, force: true }); } catch (e) { /* ignore */ }
+    }
 
     // Generate report
     process.stderr.write('\n');
