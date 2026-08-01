@@ -14,6 +14,7 @@ const fsHook = require('./hooks/fsHook');
 const netHook = require('./hooks/netHook');
 const childProcHook = require('./hooks/childProcHook');
 const httpHook = require('./hooks/httpHook');
+const fetchHook = require('./hooks/fetchHook');
 const dnsHook = require('./hooks/dnsHook');
 const { calculateAllScores, findCriticalPackages, findViolatingPackages, getRiskLevel } = require('./scoring/trustScore');
 const cliFormatter = require('./output/cliFormatter');
@@ -164,6 +165,18 @@ function init(options = {}) {
         installed.push('httpHook');
     } else if (currentConfig.hooks.http) {
         failed.push('httpHook');
+    }
+
+    // fetch() shares the hooks.http switch: it is an HTTP request by another
+    // entry point, and it emits the same signal types. On Node < 18 there is
+    // no global fetch to hook — install() returns false and we record neither
+    // installed nor failed, because nothing was missed.
+    if (currentConfig.hooks.http && typeof globalThis.fetch === 'function') {
+        if (fetchHook.install(recorder, currentConfig)) {
+            installed.push('fetchHook');
+        } else {
+            failed.push('fetchHook');
+        }
     }
 
     if (currentConfig.hooks.dns && dnsHook.install(recorder, currentConfig)) {
@@ -607,6 +620,9 @@ function teardown() {
 
     if (httpHook.uninstall()) uninstalled.push('httpHook');
     else failed.push('httpHook');
+
+    if (fetchHook.uninstall()) uninstalled.push('fetchHook');
+    else failed.push('fetchHook');
 
     if (dnsHook.uninstall()) uninstalled.push('dnsHook');
     else failed.push('dnsHook');

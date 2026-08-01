@@ -14,6 +14,7 @@ const http = require('http');
 const https = require('https');
 const { createSignal, SignalType } = require('../signals/signalTypes');
 const { resolveCurrentStackFast } = require('../attribution/resolver');
+const { sanitizeHeaders, analyzeSuspiciousness } = require('../analysis/httpAnalysis');
 
 let originalHttpRequest = null;
 let originalHttpsRequest = null;
@@ -107,6 +108,7 @@ function createHttpRequestHook(original, isHttps) {
                         port: requestInfo.port,
                         path: requestInfo.path,
                         headers: sanitizeHeaders(requestInfo.headers),
+                        via: 'http-module',
                         suspicious: analyzeSuspiciousness(requestInfo)
                     },
                     attribution.name,
@@ -174,75 +176,6 @@ function buildUrlFromOptions(options, isHttps) {
     const portPart = (port === defaultPort) ? '' : `:${port}`;
 
     return `${protocol}//${host}${portPart}${path}`;
-}
-
-/**
- * Sanitize headers to remove sensitive information
- * 
- * @param {object} headers - Request headers
- * @returns {object} Sanitized headers (keys only, no values)
- */
-function sanitizeHeaders(headers) {
-    if (!headers || typeof headers !== 'object') {
-        return {};
-    }
-
-    // Only return header names, not values (to avoid leaking auth tokens)
-    const sanitized = {};
-    for (const key of Object.keys(headers)) {
-        const lowerKey = key.toLowerCase();
-        if (lowerKey.includes('auth') || lowerKey.includes('token') || lowerKey.includes('key')) {
-            sanitized[key] = '[REDACTED]';
-        } else {
-            sanitized[key] = '[PRESENT]';
-        }
-    }
-    return sanitized;
-}
-
-/**
- * Analyze request for suspicious patterns
- * 
- * @param {object} requestInfo - Parsed request info
- * @returns {object} Suspiciousness analysis
- */
-function analyzeSuspiciousness(requestInfo) {
-    const suspicious = {
-        isIpAddress: false,
-        suspiciousTld: false,
-        nonStandardPort: false,
-        pastebinLike: false,
-        indicators: []
-    };
-
-    // Check if host is an IP address
-    const ipPattern = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
-    if (ipPattern.test(requestInfo.host)) {
-        suspicious.isIpAddress = true;
-        suspicious.indicators.push('Direct IP request');
-    }
-
-    // Check for suspicious TLDs
-    const suspiciousTlds = ['.tk', '.ml', '.ga', '.cf', '.gq', '.xyz'];
-    if (suspiciousTlds.some(tld => requestInfo.host?.endsWith(tld))) {
-        suspicious.suspiciousTld = true;
-        suspicious.indicators.push('Suspicious TLD');
-    }
-
-    // Check for non-standard ports
-    if (requestInfo.port !== 80 && requestInfo.port !== 443 && requestInfo.port !== 8080) {
-        suspicious.nonStandardPort = true;
-        suspicious.indicators.push(`Non-standard port: ${requestInfo.port}`);
-    }
-
-    // Check for pastebin-like services
-    const pastebinHosts = ['pastebin.com', 'paste.ee', 'hastebin.com', 'dpaste.com'];
-    if (pastebinHosts.some(host => requestInfo.host?.includes(host))) {
-        suspicious.pastebinLike = true;
-        suspicious.indicators.push('Pastebin-like service');
-    }
-
-    return suspicious;
 }
 
 /**
