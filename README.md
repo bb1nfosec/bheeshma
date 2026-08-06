@@ -9,7 +9,7 @@
 [![npm](https://img.shields.io/npm/v/bheeshma?style=for-the-badge&color=cb3837&logo=npm)](https://www.npmjs.com/package/bheeshma)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=for-the-badge)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A514-3c873a?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/tests-75%20passing-2ea44f?style=for-the-badge)]()
+[![Tests](https://img.shields.io/badge/tests-83%20passing-2ea44f?style=for-the-badge)]()
 [![Zero deps](https://img.shields.io/badge/dependencies-0-2ea44f?style=for-the-badge)]()
 
 <a href="#-quick-start">Quick start</a> ·
@@ -133,7 +133,7 @@ npx -p bheeshma bheeshma-sandbox --block-network -- npm ci
 | 📖 File read | `FS_READ` | Recon, credential-file access |
 | 📝 File write | `FS_WRITE` | Persistence, backdoor install |
 | 🌐 TCP connect | `NET_CONNECT` | Reverse shells, C2 |
-| 🌍 HTTP / HTTPS | `HTTP(S)_REQUEST` | Data exfiltration (incl. `.get`) |
+| 🌍 HTTP / HTTPS | `HTTP(S)_REQUEST` | Data exfiltration — `http`/`https` modules (incl. `.get`) **and global `fetch`** |
 | 🧭 DNS query | `DNS_QUERY` | DNS tunneling / encoded-subdomain exfil |
 | ⚡ Shell exec | `SHELL_EXEC` | Arbitrary code execution |
 | 🌀 Obfuscation | `OBFUSCATION_DETECTED` | Hidden payloads (eval/Function/hex) |
@@ -271,7 +271,7 @@ Auto-updates daily from the OSV API + a curated threat set (`scripts/fetch-threa
 ## 🧪 Testing
 
 ```bash
-npm test               # 75 tests: in-process harness + CLI integration (offline, deterministic)
+npm test               # 83 tests: in-process harness + CLI integration (offline, deterministic)
 npm run benchmark      # efficacy benchmark (detection / FP by gate)
 npm run perf           # monitoring-overhead microbenchmark
 node benchmark/fp-real.js   # false-positive sweep on real packages (needs network)

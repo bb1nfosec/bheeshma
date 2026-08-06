@@ -7,7 +7,7 @@ ship a tool that silently stops detecting.
 ## 1. Pre-flight (on `main`, clean tree)
 
 - [ ] `git checkout main && git pull` — start from the merged state.
-- [ ] `npm test` → all green (in-process + CLI integration; currently 75).
+- [ ] `npm test` → all green (in-process + CLI integration; currently 83).
 - [ ] `npm run benchmark` → detection unchanged (high+ should stay 100% / 0% FP).
 - [ ] `npm run perf` → overhead in the expected range (no regression).
 - [ ] `node benchmark/fp-real.js` (network) → false-positive rate acceptable on real packages.

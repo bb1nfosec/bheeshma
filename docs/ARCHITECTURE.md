@@ -19,7 +19,7 @@ meant to be used together, not as alternatives.
 
 ## Engine 1 — in-process (default; `bheeshma`, `bheeshma-ci`, `bheeshma install`)
 
-Monkey-patches `env`/`fs`/`net`/`http(s)`/`dns`/`child_process` and attributes
+Monkey-patches `env`/`fs`/`net`/`http(s)`/`fetch`/`dns`/`child_process` and attributes
 each call to a package via the JavaScript stack (with an `AsyncLocalStorage`
 fallback for async-deferred behavior).
 

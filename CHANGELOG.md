@@ -4,6 +4,40 @@ All notable changes to BHEESHMA will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **`fetch()` monitoring (`src/hooks/fetchHook.js`).** The global `fetch` is the
+  default HTTP path in Node 18+ and is powered by undici, which does *not* route
+  through `http.request` — so the module hook never saw it, and the socket
+  undici opens is created after the caller's stack has unwound, which also lost
+  package attribution. Result: fetch-based exfiltration produced an
+  `ENV_ACCESS` and no network signal at all, the credential-exfil correlation
+  never fired, and the default `high` gate let it through. This was a structural
+  blind spot against the request shape used by current npm worm families.
+
+  The hook resolves attribution at the synchronous call site and emits the same
+  `HTTP_REQUEST`/`HTTPS_REQUEST` signal types as the module hook, so all existing
+  scoring and correlated patterns apply unchanged. Signal metadata now carries
+  `via: 'fetch' | 'http-module'` to record the entry point. Bodies are never
+  read; header values are redacted as before. Gated by the existing `hooks.http`
+  switch; a no-op on runtimes without a global `fetch`.
+
+### Changed
+
+- Header sanitization and destination-suspiciousness analysis moved to
+  `src/analysis/httpAnalysis.js`, shared by the `http`/`https` and `fetch` hooks
+  so both entry points emit identical metadata.
+
+### Removed
+
+- **`src/esm-loader.mjs`.** It shipped in the published package but was dead
+  code that could not be parsed (`SyntaxError: Identifier 'resolve' has already
+  been declared` — it also `require()`d from an `.mjs` file). Nothing referenced
+  it, and following the usage documented in its own header
+  (`node --loader bheeshma/src/esm-loader.mjs`) crashed. ESM monitoring is
+  therefore an open gap, honestly stated, rather than a broken file implying
+  coverage that never existed.
+
 ## [3.0.0] - 2026-06-02 — hardening toward a production/enterprise tool
 
 Evidence-driven hardening: an efficacy benchmark, a real-package false-positive

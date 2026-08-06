@@ -8,7 +8,8 @@
 
 BHEESHMA is an **in-process runtime behavior monitor** for Node.js. It
 monkey-patches a set of Node core APIs (`env`, `fs`, `net`, `http`/`https`,
-`dns`, `child_process`) and records what your third-party dependencies do when
+the global `fetch`, `dns`, `child_process`) and records what your third-party
+dependencies do when
 they execute, attributing each observed behavior to the responsible npm package.
 
 It is best understood as **dependency-behavior telemetry and a detection aid** —
@@ -58,6 +59,13 @@ in-process design.
    behavior from its originating package.
 5. **Coverage gaps.** A behavior on a code path your test/CI run never exercises
    is never observed.
+6. **HTTP clients that bypass the hooked entry points.** BHEESHMA wraps the
+   `http`/`https` modules and the *global* `fetch`. A package that imports
+   `undici` directly and calls its exported `fetch`, or that captured a
+   reference to `globalThis.fetch` before BHEESHMA initialized, is not seen by
+   the request hooks. Such a client still opens a socket, so `netHook` may
+   record a `NET_CONNECT` — but connections made after the caller's stack has
+   unwound can lose package attribution.
 
 ## Recommended deployment
 
